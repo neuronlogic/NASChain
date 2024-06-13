@@ -67,7 +67,7 @@ NAS is about training small models. There is a file size limit that you can uplo
 
 We recommend using virtual environments such as Conda to manage and isolate your project dependencies.
 - Packages such as pytorch should be installed exactly as described in requirements.txt for Validators.
-- Ensure you have Python == 3.10 installed on your system.
+- Ensure you have Python == 3.10.14 installed on your system.
 - Both Miner and Validator code is only tested on Linux OS.
 - It is advised to use a virtual environment to avoid conflicts with other projects or system-wide packages.
 
@@ -75,7 +75,7 @@ We recommend using virtual environments such as Conda to manage and isolate your
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/nimaaghli/NASChain
+   git clone https://github.com/neuronlogic/NASChain
 2. Navigate to the project directory:
     ```bash
     cd NASChain
@@ -102,9 +102,9 @@ We recommend using virtual environments such as Conda to manage and isolate your
       ```bash
       python neurons/miner.py --netuid 31 --wallet.name <wallet_cold_name> --wallet.hotkey <wallet_hot_name> --logging.debug --hf_repo_id <your_hf_repo_id>
       ```
-   4. Run a Miner with a Pretrained PyTorch Model (Model Exported by NAS in a Different Directory):
+   4. Run a Miner with a Pretrained(.pt) PyTorch Model (Model Exported by NAS in a Different Directory):
       ```bash
-      python neurons/miner.py --netuid 31 --wallet.name <wallet_cold_name> --wallet.hotkey <wallet_hot_name> --logging.debug --hf_repo_id <your_hf_repo_id> --model.dir path/to/mode/model.pt
+      python neurons/miner.py --netuid 31 --wallet.name <wallet_cold_name> --wallet.hotkey <wallet_hot_name> --logging.debug --hf_repo_id <your_hf_repo_id> --model.dir path/to/model/model.pt
       ```
 
 6. **Running the Validator:**
