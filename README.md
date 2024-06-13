@@ -24,7 +24,7 @@ NASChain aims to address these challenges by leveraging the power of the Bittens
 
 3. **Validation Process:** Validators sync with the blockchain, download all models from the miners, and evaluate them on the test set. Architectures that lie on the Pareto Optimal line will have their weights reset and undergo further training by validators on the standard train/valid set to ensure no test set leakage occurred during the miners' model training.
 
-4. **Rewards for Miners:** Miners who produce models that lie on the Pareto Optimal line will be rewarded.
+4. **Rewards for Miners:** Miners who produce models that lie on the Pareto Optimal line will be rewarded. Miners task is to train models that maximize accuracy on the test set and minimize the number of parameters.
 
 <div align="center">
 <img src="imgs/subnet31_v2.svg" alt="NASChain V2" width="960" height="770">
