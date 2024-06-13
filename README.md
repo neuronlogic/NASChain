@@ -55,7 +55,11 @@ NAS is about training small models. There is a file size limit that you can uplo
 
 
 ### Validators:
-- **GPU**: RTX 4090. The validator code uses a fixed seed number to create deterministic results and avoid fluctuations in the results. It is strongly recommended to use a Linux environment and the exact Python version and packages described below. If running the validator in RunPod, use the RunPod PyTorch 2.2.0 template.
+
+- **GPU**: RTX 4090 (required). The validator code uses a fixed seed number to create deterministic results and avoid fluctuations in the results. It is strongly recommended to use a Linux environment and the exact Python version and packages described below. 
+- **CPU**: At least 24 cores. Slow or virtual CPUs slow down the data pipeline, resulting in underutilization of the GPU.
+
+**⚠️ Strongly recommended to use bare-metal machines. VMs such as those provided by Runpod have been shown to be very slow. ⚠️**
 
 
 ---
