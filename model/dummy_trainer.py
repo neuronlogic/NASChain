@@ -68,13 +68,13 @@ class DummyTrainer:
         transform.transforms.append(Cutout(self.cutout_length))
 
         self.trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
-        self.trainloader = DataLoader(self.trainset, batch_size=self.batch_size, shuffle=True, num_workers=2)
+        self.trainloader = DataLoader(self.trainset, batch_size=self.batch_size, shuffle=True, num_workers=8)
 
         self.testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         ]))
-        self.testloader = DataLoader(self.testset, batch_size=self.batch_size, shuffle=False, num_workers=2)
+        self.testloader = DataLoader(self.testset, batch_size=self.batch_size, shuffle=False, num_workers=8)
 
         self.model = SimpleCNN().to(self.device)
         self.criterion = nn.CrossEntropyLoss()

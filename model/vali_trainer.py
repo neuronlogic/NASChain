@@ -59,7 +59,7 @@ class ValiTrainer:
 
 
         self.trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
-        self.trainloader = DataLoader(self.trainset, batch_size=self.batch_size, shuffle=True, num_workers=2)
+        self.trainloader = DataLoader(self.trainset, batch_size=self.batch_size, shuffle=True, num_workers=8)
 
         transform_test = transforms.Compose([
             transforms.ToTensor(),
@@ -67,7 +67,7 @@ class ValiTrainer:
         ])
         
         self.testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
-        self.testloader = DataLoader(self.testset, batch_size=self.batch_size, shuffle=False, num_workers=2)
+        self.testloader = DataLoader(self.testset, batch_size=self.batch_size, shuffle=False, num_workers=8)
     
     def set_seed(self, seed=0):
         random.seed(seed)
