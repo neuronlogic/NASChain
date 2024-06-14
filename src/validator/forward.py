@@ -38,7 +38,18 @@ from model.vali_config import ValidationConfig
 import traceback
 
 
-
+# Function to find Pareto optimal points
+def find_pareto(accuracy, parameters):
+    pareto_optimal_indices = []
+    for i in range(len(accuracy)):
+        is_pareto = True
+        for j in range(len(accuracy)):
+            if accuracy[i] <= accuracy[j] and parameters[i] >= parameters[j] and i != j:
+                is_pareto = False
+                break
+        if is_pareto:
+            pareto_optimal_indices.append(i)
+    return pareto_optimal_indices
 
 
 def should_skip_evaluation(df, uid):
@@ -86,6 +97,56 @@ def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None):
     return df
 
 
+def validate_pareto(df, validated_uids, trainer):
+    changes_made = True
+    while changes_made:
+        changes_made = False
+        pareto_candidates = df[df['pareto'] & ~df['uid'].isin(validated_uids)].copy()  # Get the current Pareto optimal points excluding validated ones
+        
+        if pareto_candidates.empty:
+            break  # Exit loop if no candidates left to validate
+
+        for index, row in pareto_candidates.iterrows():
+            uid = row['uid']
+            if df.loc[df['uid'] == uid, 'vali_evaluated'].values[0]:
+                bt.logging.info(f"UID: {uid} has already been vali_evaluated.")
+                continue
+            else:
+                bt.logging.info(f"UID: {uid} is being evaluated.")
+            
+            original_accuracy = row['accuracy']
+            model_dir = df.loc[df['uid'] == uid, 'local_model_dir'].values[0]
+            
+            model = torch.load(model_dir)
+            trainer.initialize_weights(model)
+            retrained_model = trainer.train(model)
+            new_accuracy = trainer.test(retrained_model)
+            bt.logging.info(f"acc_after_retrain: {new_accuracy}")
+            if new_accuracy >= original_accuracy:
+                df.loc[df['uid'] == uid, 'reward'] = True  # Reward the model if it passes the check
+            else:
+                df.loc[df['uid'] == uid, 'accuracy'] = new_accuracy  # Update the accuracy
+                df.loc[df['uid'] == uid, 'pareto'] = False  # Mark as not Pareto optimal anymore
+
+            validated_uids.add(uid)  # Add to validated to prevent revalidation
+            df.loc[df['uid'] == uid, 'vali_evaluated'] = True  # Set the vali_evaluated flag to True for the processed model
+
+            # Recalculate the Pareto optimal points
+            new_pareto_optimal_indices = find_pareto(df['accuracy'].tolist(), df['params'].tolist())
+            df['pareto'] = False  # Reset all Pareto flags
+            df.loc[new_pareto_optimal_indices, 'pareto'] = True  # Set new Pareto optimal points
+            
+            if new_pareto_optimal_indices:
+                changes_made = True  # Set changes_made to re-evaluate new Pareto front
+
+    # After evaluating, assign rewards to any models in the Pareto front
+    final_pareto_indices = df[df['pareto']].index
+    df.loc[final_pareto_indices, 'reward'] = True
+
+    return df
+
+
+
 
 async def get_metadata(metadata_store, hotkey):
     """Get metadata about a model by hotkey"""
@@ -123,7 +184,10 @@ async def forward(self):
                 'params': None,
                 'accuracy': None,
                 'evaluate': False,
-                'pareto': False
+                'pareto': False,
+                'reward': False,
+                'vali_evaluated':False,
+                
             }
             self.eval_frame = append_row(self.eval_frame, new_row)
             print(self.eval_frame)
@@ -137,24 +201,47 @@ async def forward(self):
             analysis = ModelAnalysis(model)
             params, macs, flops = analysis.get_analysis()
             self.eval_frame = update_row(self.eval_frame, uid, accuracy = acc,params = params, evaluate = True)
-     
             bt.logging.info(f"acc_before: {acc}") 
-            trainer.initialize_weights(model)
-            acc = trainer.test(model)
-            bt.logging.info(f"acc_after_rest: {acc}")
-            retrained_model = trainer.train(model)
-            acc = trainer.test(retrained_model)
-            bt.logging.info(f"acc_after_retrain: {acc}")
-            self.eval_frame = update_row(self.eval_frame, uid, accuracy = acc)
-            self.save_validator_state()
+            torch.cuda.empty_cache()
+
 
 
             
+
+            # trainer.initialize_weights(model)
+            # acc = trainer.test(model)
+            # bt.logging.info(f"acc_after_rest: {acc}")
+            # retrained_model = trainer.train(model)
+            # acc = trainer.test(retrained_model)
+            # bt.logging.info(f"acc_after_retrain: {acc}")
+            # self.eval_frame = update_row(self.eval_frame, uid, accuracy = acc)
+            # self.save_validator_state()
         except Exception as e:
             bt.logging.error(f"Unexpected error: {e}")
             # traceback.print_exc()
-    
+    try:       
+        # Calculate Pareto optimal indices
+        params = self.eval_frame['params'].tolist()
+        accuracy = self.eval_frame['accuracy'].tolist()
+        pareto_optimal_indices = find_pareto(accuracy, params)
 
+        # Set Pareto flag to True for Pareto optimal points
+        self.eval_frame.loc[pareto_optimal_indices, 'pareto'] = True
+        # Print Pareto optimal points before validation
+        pareto_optimal_points_before = self.eval_frame[self.eval_frame['pareto']]
+        pareto_tuples_before = list(pareto_optimal_points_before[['uid', 'params', 'accuracy']].itertuples(index=False, name=None))
+        print("Pareto optimal points before validation:", pareto_tuples_before)
+        # Validate and adjust Pareto optimal points
+        validated_uids = set()
+        self.eval_frame = validate_pareto(self.eval_frame, validated_uids, trainer)
+
+
+        print("**********************************")
+        print(self.eval_frame)
+        print("**********************************")
+
+    except Exception as e:
+        bt.logging.error(f"Unexpected error: {e}")
 
 
 
