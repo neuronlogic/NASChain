@@ -116,28 +116,31 @@ def validate_pareto(df, validated_uids, trainer):
             
             original_accuracy = row['accuracy']
             model_dir = df.loc[df['uid'] == uid, 'local_model_dir'].values[0]
-            
-            model = torch.load(model_dir)
-            trainer.initialize_weights(model)
-            retrained_model = trainer.train(model)
-            new_accuracy = trainer.test(retrained_model)
-            bt.logging.info(f"acc_after_retrain: {new_accuracy}")
-            if new_accuracy >= original_accuracy:
-                df.loc[df['uid'] == uid, 'reward'] = True  # Reward the model if it passes the check
-            else:
-                df.loc[df['uid'] == uid, 'accuracy'] = new_accuracy  # Update the accuracy
-                df.loc[df['uid'] == uid, 'pareto'] = False  # Mark as not Pareto optimal anymore
+            try:
+                model = torch.load(model_dir)
+                trainer.initialize_weights(model)
+                retrained_model = trainer.train(model)
+                new_accuracy = trainer.test(retrained_model)
+                bt.logging.info(f"acc_after_retrain: {new_accuracy}")
+                if new_accuracy >= original_accuracy:
+                    df.loc[df['uid'] == uid, 'reward'] = True  # Reward the model if it passes the check
+                else:
+                    df.loc[df['uid'] == uid, 'accuracy'] = new_accuracy  # Update the accuracy
+                    df.loc[df['uid'] == uid, 'pareto'] = False  # Mark as not Pareto optimal anymore
 
-            validated_uids.add(uid)  # Add to validated to prevent revalidation
-            df.loc[df['uid'] == uid, 'vali_evaluated'] = True  # Set the vali_evaluated flag to True for the processed model
+                validated_uids.add(uid)  # Add to validated to prevent revalidation
+                df.loc[df['uid'] == uid, 'vali_evaluated'] = True  # Set the vali_evaluated flag to True for the processed model
 
-            # Recalculate the Pareto optimal points
-            new_pareto_optimal_indices = find_pareto(df['accuracy'].tolist(), df['params'].tolist())
-            df['pareto'] = False  # Reset all Pareto flags
-            df.loc[new_pareto_optimal_indices, 'pareto'] = True  # Set new Pareto optimal points
-            
-            if new_pareto_optimal_indices:
-                changes_made = True  # Set changes_made to re-evaluate new Pareto front
+                # Recalculate the Pareto optimal points
+                new_pareto_optimal_indices = find_pareto(df['accuracy'].tolist(), df['params'].tolist())
+                df['pareto'] = False  # Reset all Pareto flags
+                df.loc[new_pareto_optimal_indices, 'pareto'] = True  # Set new Pareto optimal points
+                
+                if new_pareto_optimal_indices:
+                    changes_made = True  # Set changes_made to re-evaluate new Pareto front
+            except Exception as e:
+                bt.logging.error(f"validate_pareto error: {e}")
+                bt.logging.error(traceback.format_exc())
 
     # After evaluating, assign rewards to any models in the Pareto front
     final_pareto_indices = df[df['pareto']].index
@@ -181,8 +184,8 @@ async def forward(self):
                 'uid': uid,
                 'local_model_dir': model_with_hash.pt_model,
                 'commit': model_with_hash.id.commit,
-                'params': None,
-                'accuracy': None,
+                'params': float('inf'),
+                'accuracy': 0.0,
                 'evaluate': False,
                 'pareto': False,
                 'reward': False,
@@ -218,6 +221,7 @@ async def forward(self):
             # self.save_validator_state()
         except Exception as e:
             bt.logging.error(f"Unexpected error: {e}")
+            bt.logging.error(traceback.format_exc())
             # traceback.print_exc()
     try:       
         # Calculate Pareto optimal indices
@@ -238,7 +242,18 @@ async def forward(self):
 
         print("**********************************")
         print(self.eval_frame)
+        
+        rewarded_uids = self.eval_frame[self.eval_frame['reward'] == True]['uid'].tolist()
+        num_rewarded = len(rewarded_uids)
+        if num_rewarded > 0:
+            rewards = [1.0 / num_rewarded] * num_rewarded
+        else:
+            rewards = []
+        bt.logging.info(f"Rewarded_uids: {rewarded_uids}")
+        bt.logging.info(f"rewards: {rewards}")
+        self.update_scores(torch.FloatTensor(rewards).to(self.device), rewarded_uids)
         print("**********************************")
+        # torch.FloatTensor(rewards).to(self.device), uids, msgs
 
     except Exception as e:
         bt.logging.error(f"Unexpected error: {e}")

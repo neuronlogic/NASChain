@@ -74,10 +74,10 @@ class BaseValidatorNeuron(BaseNeuron):
         self.resync_metagraph()
 
         # Serve axon to enable external connections.
-        if not self.config.neuron.axon_off:
-            self.serve_axon()
-        else:
-            bt.logging.warning("axon off, not serving ip to chain.")
+        # if not self.config.neuron.axon_off:
+        #     self.serve_axon()
+        # else:
+        #     bt.logging.warning("axon off, not serving ip to chain.")
 
         # Create asyncio event loop to manage async tasks.
         self.loop = asyncio.get_event_loop()
@@ -383,18 +383,18 @@ class BaseValidatorNeuron(BaseNeuron):
 
         # Compute forward pass rewards, assumes uids are mutually exclusive.
         # shape: [ metagraph.n ]
-        scattered_rewards: torch.FloatTensor = self.scores.scatter(
+        self.scores: torch.FloatTensor = self.scores.scatter(
             0, uids_tensor, rewards
         ).to(self.device)
-        bt.logging.debug(f"Scattered rewards: {rewards}")
-
-        # Update scores with rewards produced by this step.
-        # shape: [ metagraph.n ]
-        alpha: float = self.config.neuron.moving_average_alpha
-        self.scores: torch.FloatTensor = alpha * scattered_rewards + (
-            1 - alpha
-        ) * self.scores.to(self.device)
-        bt.logging.debug(f"Updated moving avg scores: {self.scores}")
+        bt.logging.debug(f"Scattered rewards: {self.scores}")
+        
+        # # Update scores with rewards produced by this step.
+        # # shape: [ metagraph.n ]
+        # alpha: float = self.config.neuron.moving_average_alpha
+        # self.scores: torch.FloatTensor = alpha * scattered_rewards + (
+        #     1 - alpha
+        # ) * self.scores.to(self.device)
+        # bt.logging.debug(f"Updated moving avg scores: {self.scores}")
 
     def save_state(self):
         """Saves the state of the validator to a file."""
