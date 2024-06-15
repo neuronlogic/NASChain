@@ -253,6 +253,7 @@ async def forward(self):
         bt.logging.info(f"rewards: {rewards}")
         self.update_scores(torch.FloatTensor(rewards).to(self.device), rewarded_uids)
         print("**********************************")
+        self.save_validator_state()
         # torch.FloatTensor(rewards).to(self.device), uids, msgs
 
     except Exception as e:
