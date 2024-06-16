@@ -44,7 +44,7 @@ def find_pareto(accuracy, parameters):
     for i in range(len(accuracy)):
         is_pareto = True
         for j in range(len(accuracy)):
-            if accuracy[i] <= accuracy[j] and parameters[i] >= parameters[j] and i != j:
+            if (accuracy[j] > accuracy[i] and parameters[j] <= parameters[i]) or (accuracy[j] >= accuracy[i] and parameters[j] < parameters[i]):
                 is_pareto = False
                 break
         if is_pareto:
