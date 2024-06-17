@@ -22,7 +22,6 @@ import bittensor as bt
 from src.protocol import Dummy
 from src.validator.reward import get_rewards
 from src.utils.uids import get_random_uids
-import requests
 import torch
 
 import pandas as pd
@@ -36,6 +35,44 @@ from model.vali_trainer import ValiTrainer
 from model.model_analysis import ModelAnalysis
 from model.vali_config import ValidationConfig
 import traceback
+import plotly.graph_objects as go
+import wandb
+import os
+
+def plot_pareto_after(df, pareto_optimal_points_after):
+    fig = go.Figure()
+
+    # Plot all points
+    fig.add_trace(go.Scatter(
+        x=df['params'],
+        y=df['accuracy'],
+        mode='markers',
+        name='All Points',
+        text=df['uid'],  # Add UID to hover data
+        hovertemplate='UID: %{text}<br>Params: %{x}<br>Accuracy: %{y}<extra></extra>'
+    ))
+
+    # Sort and plot Pareto optimal points after validation
+    pareto_optimal_points_after = pareto_optimal_points_after.sort_values(by='params')
+    fig.add_trace(go.Scatter(
+        x=pareto_optimal_points_after['params'],
+        y=pareto_optimal_points_after['accuracy'],
+        mode='markers+lines',
+        line=dict(color='red'),
+        name='Pareto Optimal',
+        text=pareto_optimal_points_after['uid'],  # Add UID to hover data
+        hovertemplate='UID: %{text}<br>Params: %{x}<br>Accuracy: %{y}<extra></extra>'
+    ))
+
+    # Update layout
+    fig.update_layout(
+        title='Scatter Plot of Params vs Accuracy',
+        xaxis_title='Params',
+        yaxis_title='Accuracy',
+        showlegend=True
+    )
+    
+    return fig
 
 
 # Function to find Pareto optimal points
@@ -150,6 +187,33 @@ def validate_pareto(df, validated_uids, trainer):
 
 
 
+def wandb_update(plot, hotkey, valiconfig:ValidationConfig):
+    api_key = os.getenv('WANDB_API_KEY')
+    if api_key is not None:
+    # Log in to wandb using the API key from the environment variable
+        wandb.login(key=api_key)
+    else:
+        print("Environment variable WANDB_API_KEY not found. Please set it before running the script.")
+    run_id = hotkey
+    # Initialize wandb run with resume
+    wandb.init(project=valiconfig.wandb_project, entity=valiconfig.wandb_entitiy, resume='allow', id=run_id)
+
+    # Log the Plotly figure to wandb
+    wandb.log({"plotly_plot": wandb.Plotly(plot)})
+
+    # Finish the wandb run
+    wandb.finish()
+
+
+# Function to check column changes
+def has_columns_changed(df1, df2):
+    columns_to_check = ['params', 'accuracy', 'pareto']
+    for column in columns_to_check:
+        if not df1[column].equals(df2[column]):
+            return True
+    return False
+  
+
 
 async def get_metadata(metadata_store, hotkey):
     """Get metadata about a model by hotkey"""
@@ -168,6 +232,7 @@ async def forward(self):
     trainer = ValiTrainer(epochs=vali_config.train_epochs)
     metadata_store = ChainModelMetadataStore(self.subtensor, self.wallet, self.config.netuid)
     hg_model_store = HuggingFaceModelStore()
+    copy_eval_frame = self.eval_frame.copy()
     for uid in range(self.metagraph.n.item()):
         bt.logging.error(f"--------------------")
         hotkey = self.metagraph.hotkeys[uid]
@@ -240,8 +305,7 @@ async def forward(self):
         self.eval_frame = validate_pareto(self.eval_frame, validated_uids, trainer)
 
 
-        print("**********************************")
-        print(self.eval_frame)
+    
         
         rewarded_uids = self.eval_frame[self.eval_frame['reward'] == True]['uid'].tolist()
         num_rewarded = len(rewarded_uids)
@@ -252,8 +316,19 @@ async def forward(self):
         bt.logging.info(f"Rewarded_uids: {rewarded_uids}")
         bt.logging.info(f"rewards: {rewards}")
         self.update_scores(torch.FloatTensor(rewards).to(self.device), rewarded_uids)
-        print("**********************************")
         self.save_validator_state()
+        pareto_optimal_points_after = self.eval_frame[self.eval_frame['pareto']]
+        print("**********************************")
+        print(self.eval_frame)
+        print(copy_eval_frame)
+        print("**********************************")
+        if has_columns_changed(self.eval_frame, copy_eval_frame):
+            fig = plot_pareto_after(self.eval_frame , pareto_optimal_points_after)
+            wandb_update(fig,"firsttest",vali_config)
+            fig.show()
+
+
+
         # torch.FloatTensor(rewards).to(self.device), uids, msgs
 
     except Exception as e:

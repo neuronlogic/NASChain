@@ -26,15 +26,15 @@ __spec_version__ = (
 )
 
 # The validator WANDB project.
-WANDB_PROJECT = "pretraining-subnet"
+WANDB_PROJECT = "naschain"
 # The uid for this subnet.
 SUBNET_UID = 123
 # The root directory of this project.
-ROOT_DIR = Path(__file__).parent.parent
-# Block at which 7b models, 4096 sequence lengths, new tokenizer, bfloat16, and flash attention are used.
-BLOCK_7B = 2_786_061
-SEQUENCE_LENGTH_1 = 1024
-SEQUENCE_LENGTH_2 = 4096
+# ROOT_DIR = Path(__file__).parent.parent
+# # Block at which 7b models, 4096 sequence lengths, new tokenizer, bfloat16, and flash attention are used.
+# BLOCK_7B = 2_786_061
+# SEQUENCE_LENGTH_1 = 1024
+# SEQUENCE_LENGTH_2 = 4096
 # A mapping of block numbers to the supported model types as of that block.
 # ALLOWED_MODEL_TYPES_1 = {
 #     GPT2LMHeadModel,

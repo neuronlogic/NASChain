@@ -107,5 +107,11 @@ We recommend using virtual environments such as Conda to manage and isolate your
       ```
 
 6. **Running the Validator:**
+1. Create wandb account 
+2. Export the wandb env variable 
+   ```bash
+   export WANDB_API_KEY='you_wandb_API_key'
+   ```
+
    ```bash
    TODO

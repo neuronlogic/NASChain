@@ -98,7 +98,7 @@ class BaseValidatorNeuron(BaseNeuron):
         if not os.path.exists(state_dir):
             os.makedirs(state_dir)
             bt.logging.info(f"Created directory: {state_dir}")
-
+            
         state_path = os.path.join(state_dir, state_file)
         if os.path.exists(state_path):
             self.eval_frame = pd.read_csv(state_path)
