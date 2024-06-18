@@ -4,9 +4,9 @@ class ValidationConfig:
         self.max_parameters = 0
         self.min_flops = 0
         self.max_flops = 0
-        self.min_accuracy = 0
-        self.max_accuracy = 0
+        self.min_accuracy = 83.0
+        self.max_accuracy = 100.0
         self.max_download_file_size = 5*1024*1024
-        self.train_epochs = 50
+        self.train_epochs = 1
         self.wandb_project = 'naschain-pareto'
         self.wandb_entitiy = 'naschain'

@@ -75,10 +75,11 @@ def plot_pareto_after(df, pareto_optimal_points_after):
     return fig
 
 
-# Function to find Pareto optimal points
-def find_pareto(accuracy, parameters):
+def find_pareto(accuracy, parameters, vali_config:ValidationConfig):
     pareto_optimal_indices = []
     for i in range(len(accuracy)):
+        if accuracy[i] < vali_config.min_accuracy:
+            continue  # Skip this point if accuracy is less than 0.85
         is_pareto = True
         for j in range(len(accuracy)):
             if (accuracy[j] > accuracy[i] and parameters[j] <= parameters[i]) or (accuracy[j] >= accuracy[i] and parameters[j] < parameters[i]):
@@ -134,7 +135,7 @@ def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None):
     return df
 
 
-def validate_pareto(df, validated_uids, trainer):
+def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
     changes_made = True
     while changes_made:
         changes_made = False
@@ -169,7 +170,7 @@ def validate_pareto(df, validated_uids, trainer):
                 df.loc[df['uid'] == uid, 'vali_evaluated'] = True  # Set the vali_evaluated flag to True for the processed model
 
                 # Recalculate the Pareto optimal points
-                new_pareto_optimal_indices = find_pareto(df['accuracy'].tolist(), df['params'].tolist())
+                new_pareto_optimal_indices = find_pareto(df['accuracy'].tolist(), df['params'].tolist(), vali_config)
                 df['pareto'] = False  # Reset all Pareto flags
                 df.loc[new_pareto_optimal_indices, 'pareto'] = True  # Set new Pareto optimal points
                 
@@ -194,9 +195,10 @@ def wandb_update(plot, hotkey, valiconfig:ValidationConfig):
         wandb.login(key=api_key)
     else:
         print("Environment variable WANDB_API_KEY not found. Please set it before running the script.")
-    run_id = hotkey
+    
+    # run_id = hotkey
     # Initialize wandb run with resume
-    wandb.init(project=valiconfig.wandb_project, entity=valiconfig.wandb_entitiy, resume='allow', id=run_id)
+    wandb.init(project=valiconfig.wandb_project, entity=valiconfig.wandb_entitiy, resume='allow', id=str(hotkey))
 
     # Log the Plotly figure to wandb
     wandb.log({"plotly_plot": wandb.Plotly(plot)})
@@ -212,7 +214,9 @@ def has_columns_changed(df1, df2):
         if not df1[column].equals(df2[column]):
             return True
     return False
-  
+
+def get_wandb_api_key():
+    return os.getenv('WANDB_API_KEY') 
 
 
 async def get_metadata(metadata_store, hotkey):
@@ -228,13 +232,17 @@ async def forward(self):
         self (:obj:`bittensor.neuron.Neuron`): The neuron object which contains all the necessary state for the validator.
     """
 
+
+    wandb_api_key = get_wandb_api_key()
+    if wandb_api_key is None:
+        bt.logging.error("Environment variable WANDB_API_KEY not found. Please set it before running the script.")
+        return
     vali_config = ValidationConfig()
     trainer = ValiTrainer(epochs=vali_config.train_epochs)
     metadata_store = ChainModelMetadataStore(self.subtensor, self.wallet, self.config.netuid)
     hg_model_store = HuggingFaceModelStore()
     copy_eval_frame = self.eval_frame.copy()
     for uid in range(self.metagraph.n.item()):
-        bt.logging.error(f"--------------------")
         hotkey = self.metagraph.hotkeys[uid]
         bt.logging.info(f"uid {uid} {hotkey}")
         try:
@@ -258,7 +266,7 @@ async def forward(self):
                 
             }
             self.eval_frame = append_row(self.eval_frame, new_row)
-            print(self.eval_frame)
+            # print(self.eval_frame)
             if should_skip_evaluation(self.eval_frame, uid):
                 bt.logging.info(f"already evaluated the model")
                 continue
@@ -286,13 +294,13 @@ async def forward(self):
             # self.save_validator_state()
         except Exception as e:
             bt.logging.error(f"Unexpected error: {e}")
-            bt.logging.error(traceback.format_exc())
+            # bt.logging.error(traceback.format_exc())
             # traceback.print_exc()
     try:       
         # Calculate Pareto optimal indices
         params = self.eval_frame['params'].tolist()
         accuracy = self.eval_frame['accuracy'].tolist()
-        pareto_optimal_indices = find_pareto(accuracy, params)
+        pareto_optimal_indices = find_pareto(accuracy, params,vali_config)
 
         # Set Pareto flag to True for Pareto optimal points
         self.eval_frame.loc[pareto_optimal_indices, 'pareto'] = True
@@ -302,7 +310,7 @@ async def forward(self):
         print("Pareto optimal points before validation:", pareto_tuples_before)
         # Validate and adjust Pareto optimal points
         validated_uids = set()
-        self.eval_frame = validate_pareto(self.eval_frame, validated_uids, trainer)
+        self.eval_frame = validate_pareto(self.eval_frame, validated_uids, trainer, vali_config)
 
 
     
@@ -318,14 +326,14 @@ async def forward(self):
         self.update_scores(torch.FloatTensor(rewards).to(self.device), rewarded_uids)
         self.save_validator_state()
         pareto_optimal_points_after = self.eval_frame[self.eval_frame['pareto']]
-        print("**********************************")
+        bt.logging.info("**********************************")
         print(self.eval_frame)
         print(copy_eval_frame)
-        print("**********************************")
+        bt.logging.info("**********************************")
         if has_columns_changed(self.eval_frame, copy_eval_frame):
             fig = plot_pareto_after(self.eval_frame , pareto_optimal_points_after)
-            wandb_update(fig,"firsttest",vali_config)
-            fig.show()
+            wandb_update(fig,self.wallet.hotkey.ss58_address,vali_config)
+            # fig.show()
 
 
 
