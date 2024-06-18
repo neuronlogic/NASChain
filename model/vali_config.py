@@ -7,6 +7,6 @@ class ValidationConfig:
         self.min_accuracy = 80.0
         self.max_accuracy = 100.0
         self.max_download_file_size = 5*1024*1024
-        self.train_epochs = 1
+        self.train_epochs = 50
         self.wandb_project = 'naschain-pareto'
         self.wandb_entitiy = 'naschain'
