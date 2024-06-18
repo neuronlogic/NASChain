@@ -332,7 +332,7 @@ async def forward(self):
         bt.logging.info("**********************************")
         if has_columns_changed(self.eval_frame, copy_eval_frame):
             fig = plot_pareto_after(self.eval_frame , pareto_optimal_points_after)
-            wandb_update(fig,self.wallet.hotkey.ss58_address,vali_config)
+            wandb_update(fig,self.wallet.coldkey.ss58_address,vali_config)
             # fig.show()
 
 
