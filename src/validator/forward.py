@@ -296,6 +296,7 @@ async def forward(self):
             bt.logging.error(f"Unexpected error: {e}")
             # bt.logging.error(traceback.format_exc())
             if uid in self.eval_frame['uid'].values:
+                bt.logging.warning(f"Removing UID: {uid}")
                 self.eval_frame = self.eval_frame[self.eval_frame['uid'] != uid]
     try:       
         # Calculate Pareto optimal indices
