@@ -91,7 +91,6 @@ def find_pareto(accuracy, parameters, vali_config:ValidationConfig):
 
 
 def should_skip_evaluation(df, uid):
-    # matching_rows = df.loc[df['uid'] == uid, 'evaluate']
     if df.loc[df['uid'] == uid, 'evaluate'].values[0]:
             return True
     return False
