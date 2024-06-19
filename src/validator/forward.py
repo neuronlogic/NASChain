@@ -305,6 +305,7 @@ async def forward(self):
         pareto_optimal_indices = find_pareto(accuracy, params,vali_config)
         # reset
         self.eval_frame['pareto'] = False 
+        self.eval_frame['reward'] = False 
         # Set Pareto flag to True for Pareto optimal points
         self.eval_frame.loc[pareto_optimal_indices, 'pareto'] = True
         # Print Pareto optimal points before validation
