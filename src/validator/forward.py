@@ -79,7 +79,7 @@ def find_pareto(accuracy, parameters, vali_config:ValidationConfig):
     pareto_optimal_indices = []
     for i in range(len(accuracy)):
         if accuracy[i] < vali_config.min_accuracy:
-            continue  # Skip this point if accuracy is less than 0.85
+            continue  
         is_pareto = True
         for j in range(len(accuracy)):
             if (accuracy[j] > accuracy[i] and parameters[j] <= parameters[i]) or (accuracy[j] >= accuracy[i] and parameters[j] < parameters[i]):
@@ -303,7 +303,8 @@ async def forward(self):
         params = self.eval_frame['params'].tolist()
         accuracy = self.eval_frame['accuracy'].tolist()
         pareto_optimal_indices = find_pareto(accuracy, params,vali_config)
-
+        # reset
+        self.eval_frame['pareto'] = False 
         # Set Pareto flag to True for Pareto optimal points
         self.eval_frame.loc[pareto_optimal_indices, 'pareto'] = True
         # Print Pareto optimal points before validation
