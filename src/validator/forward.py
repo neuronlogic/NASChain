@@ -75,19 +75,20 @@ def plot_pareto_after(df, pareto_optimal_points_after):
     return fig
 
 
-def find_pareto(accuracy, parameters, vali_config:ValidationConfig):
-    pareto_optimal_indices = []
-    for i in range(len(accuracy)):
-        if accuracy[i] < vali_config.min_accuracy:
+def find_pareto(df, vali_config:ValidationConfig):
+    pareto_optimal_uids = []
+    for i, row_i in df.iterrows():
+        if row_i['accuracy'] < vali_config.min_accuracy:
             continue  
         is_pareto = True
-        for j in range(len(accuracy)):
-            if (accuracy[j] > accuracy[i] and parameters[j] <= parameters[i]) or (accuracy[j] >= accuracy[i] and parameters[j] < parameters[i]):
-                is_pareto = False
-                break
+        for j, row_j in df.iterrows():
+            if i != j:  # Don't compare the point with itself
+                if (row_j['accuracy'] > row_i['accuracy'] and row_j['params'] <= row_i['params']) or (row_j['accuracy'] >= row_i['accuracy'] and row_j['params'] < row_i['params']):
+                    is_pareto = False
+                    break
         if is_pareto:
-            pareto_optimal_indices.append(i)
-    return pareto_optimal_indices
+            pareto_optimal_uids.append(row_i['uid'])
+    return pareto_optimal_uids
 
 
 def should_skip_evaluation(df, uid):
@@ -169,11 +170,11 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
                 df.loc[df['uid'] == uid, 'vali_evaluated'] = True  # Set the vali_evaluated flag to True for the processed model
 
                 # Recalculate the Pareto optimal points
-                new_pareto_optimal_indices = find_pareto(df['accuracy'].tolist(), df['params'].tolist(), vali_config)
+                new_pareto_optimal_uids = find_pareto(df, vali_config)
                 df['pareto'] = False  # Reset all Pareto flags
-                df.loc[new_pareto_optimal_indices, 'pareto'] = True  # Set new Pareto optimal points
+                df.loc[df['uid'].isin(new_pareto_optimal_uids), 'pareto'] = True  # Set new Pareto optimal points
                 
-                if new_pareto_optimal_indices:
+                if new_pareto_optimal_uids:
                     changes_made = True  # Set changes_made to re-evaluate new Pareto front
             except Exception as e:
                 bt.logging.error(f"validate_pareto error: {e}")
@@ -301,12 +302,12 @@ async def forward(self):
         # Calculate Pareto optimal indices
         params = self.eval_frame['params'].tolist()
         accuracy = self.eval_frame['accuracy'].tolist()
-        pareto_optimal_indices = find_pareto(accuracy, params,vali_config)
+        pareto_optimal_uids = find_pareto(self.eval_frame, vali_config)
         # reset
         self.eval_frame['pareto'] = False 
         self.eval_frame['reward'] = False 
         # Set Pareto flag to True for Pareto optimal points
-        self.eval_frame.loc[pareto_optimal_indices, 'pareto'] = True
+        self.eval_frame.loc[self.eval_frame['uid'].isin(pareto_optimal_uids), 'pareto'] = True
         # Print Pareto optimal points before validation
         pareto_optimal_points_before = self.eval_frame[self.eval_frame['pareto']]
         pareto_tuples_before = list(pareto_optimal_points_before[['uid', 'params', 'accuracy']].itertuples(index=False, name=None))
@@ -344,6 +345,7 @@ async def forward(self):
 
     except Exception as e:
         bt.logging.error(f"Unexpected error: {e}")
+        bt.logging.error(traceback.format_exc())
 
 
 
