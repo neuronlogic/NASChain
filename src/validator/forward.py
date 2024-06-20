@@ -346,7 +346,7 @@ async def forward(self):
         else:
             rewards = []
         bt.logging.info(f"Rewarded_uids: {rewarded_uids}")
-        bt.logging.info(f"rewards: {rewards}")
+        bt.logging.info(f"Rewards: {rewards}")
         self.update_scores(torch.FloatTensor(rewards).to(self.device), rewarded_uids)
         self.save_validator_state()
         pareto_optimal_points_after = self.eval_frame[self.eval_frame['pareto']]
@@ -356,7 +356,7 @@ async def forward(self):
         bt.logging.info("**********************************")
         if has_columns_changed(self.eval_frame, copy_eval_frame):
             fig = plot_pareto_after(self.eval_frame , pareto_optimal_points_after)
-            # wandb_update(fig,self.wallet.hotkey.ss58_address,vali_config)
+            wandb_update(fig,self.wallet.hotkey.ss58_address,vali_config)
             # fig.show()
 
 
