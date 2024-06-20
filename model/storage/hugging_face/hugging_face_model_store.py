@@ -85,6 +85,7 @@ class HuggingFaceModelStore(RemoteModelStore):
         model_info = api.model_info(
             repo_id=repo_id, revision=model_id.commit, timeout=10, files_metadata=True
         )
+        commit_date =  model_info.last_modified
         size = sum(repo_file.size for repo_file in model_info.siblings)
         if size > model_size_limit:
             raise ValueError(
@@ -125,4 +126,4 @@ class HuggingFaceModelStore(RemoteModelStore):
             # accuracy=model_id.accuracy
         )
 
-        return Model(id=model_id_with_hash, pt_model=local_model_path)
+        return Model(id=model_id_with_hash, pt_model=local_model_path), commit_date

@@ -135,11 +135,28 @@ def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None):
     return df
 
 
+def filter_pareto_by_commit_date(df):
+    # Find all rows where 'pareto' is True
+    pareto_df = df[df['pareto']]
+
+    # Group by 'accuracy' and 'params' and filter within groups
+    for (accuracy, params), group in pareto_df.groupby(['accuracy', 'params']):
+        if len(group) > 1:
+            # Find the row with the oldest commit_date
+            oldest_row_index = group['commit_date'].idxmin()
+            
+            # Set 'pareto' to False for all other rows with the same accuracy and params
+            df.loc[(df['accuracy'] == accuracy) & (df['params'] == params) & (df.index != oldest_row_index), 'pareto'] = False
+    
+    return df
+
+
 def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
     changes_made = True
     while changes_made:
         changes_made = False
-        pareto_candidates = df[df['pareto'] & ~df['uid'].isin(validated_uids)].copy()  # Get the current Pareto optimal points excluding validated ones
+        # Get the current Pareto optimal points excluding validated ones
+        pareto_candidates = df[df['pareto'] & ~df['uid'].isin(validated_uids)].copy()  
         
         if pareto_candidates.empty:
             break  # Exit loop if no candidates left to validate
@@ -180,7 +197,8 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
                 bt.logging.error(f"validate_pareto error: {e}")
                 bt.logging.error(traceback.format_exc())
 
-    # After evaluating, assign rewards to any models in the Pareto front
+    # First filter those have same params and acc by commit date then set rewards 
+    df = filter_pareto_by_commit_date(df)
     final_pareto_indices = df[df['pareto']].index
     df.loc[final_pareto_indices, 'reward'] = True
 
@@ -244,18 +262,20 @@ async def forward(self):
     copy_eval_frame = self.eval_frame.copy()
     for uid in range(self.metagraph.n.item()):
         hotkey = self.metagraph.hotkeys[uid]
-        bt.logging.info(f"uid {uid} {hotkey}")
+        bt.logging.info(f"Reading uid: {uid} {hotkey}")
         try:
             model_metadata =  await metadata_store.retrieve_model_metadata(hotkey)
-            model_with_hash = await hg_model_store.download_model(model_metadata.id, local_path='cache', model_size_limit= vali_config.max_download_file_size)
-            bt.logging.info(f"hash_in_metadata: {model_metadata.id.hash}, {model_with_hash.id.hash}, {model_with_hash.pt_model},{model_with_hash.id.commit}")
+            model_with_hash, commit_date = await hg_model_store.download_model(model_metadata.id, local_path='cache', model_size_limit= vali_config.max_download_file_size)
+            # bt.logging.info(f"hash_in_metadata: {model_metadata.id.hash}, {model_with_hash.id.hash}, {model_with_hash.pt_model},{model_with_hash.id.commit}")
             
             if model_metadata.id.hash != model_with_hash.id.hash:
-                raise ValueError(f"Hash mismatch: metadata hash {model_metadata.id.hash} != downloaded model hash {model_with_hash.id.hash}")
+                # raise ValueError(f"Hash mismatch: metadata hash {model_metadata.id.hash} != downloaded model hash {model_with_hash.id.hash}")
+                raise ValueError(f"Hash mismatch: metadata hash {model_metadata.id.hash[-8:]} != downloaded model hash {model_with_hash.id.hash[-8:]}")
 
             new_row = {
                 'uid': uid,
                 'local_model_dir': model_with_hash.pt_model,
+                'commit_date': commit_date,
                 'commit': model_with_hash.id.commit,
                 'params': float('inf'),
                 'accuracy': 0.0,
@@ -268,7 +288,7 @@ async def forward(self):
             self.eval_frame = append_row(self.eval_frame, new_row)
             # print(self.eval_frame)
             if should_skip_evaluation(self.eval_frame, uid):
-                bt.logging.info(f"already evaluated the model")
+                bt.logging.info(f"Already evaluated the model for uid: {uid}")
                 continue
 
             # print(self.eval_frame)
@@ -277,7 +297,7 @@ async def forward(self):
             analysis = ModelAnalysis(model)
             params, macs, flops = analysis.get_analysis()
             self.eval_frame = update_row(self.eval_frame, uid, accuracy = acc,params = params, evaluate = True)
-            bt.logging.info(f"acc_before: {acc}") 
+            bt.logging.info(f"Eval Acc: {acc}, Eval Params: {params}") 
             torch.cuda.empty_cache()
 
 
@@ -293,7 +313,7 @@ async def forward(self):
             # self.eval_frame = update_row(self.eval_frame, uid, accuracy = acc)
             # self.save_validator_state()
         except Exception as e:
-            bt.logging.error(f"Unexpected error: {e}")
+            bt.logging.error(f"Evaluation Error on uid {uid} : {e}")
             # bt.logging.error(traceback.format_exc())
             if uid in self.eval_frame['uid'].values:
                 bt.logging.warning(f"Removing UID: {uid}")
@@ -311,7 +331,7 @@ async def forward(self):
         # Print Pareto optimal points before validation
         pareto_optimal_points_before = self.eval_frame[self.eval_frame['pareto']]
         pareto_tuples_before = list(pareto_optimal_points_before[['uid', 'params', 'accuracy']].itertuples(index=False, name=None))
-        print("Pareto optimal points before validation:", pareto_tuples_before)
+        bt.logging.info(f"Pareto optimal points before validation:{pareto_tuples_before}")
         # Validate and adjust Pareto optimal points
         validated_uids = set()
         self.eval_frame = validate_pareto(self.eval_frame, validated_uids, trainer, vali_config)
@@ -336,7 +356,7 @@ async def forward(self):
         bt.logging.info("**********************************")
         if has_columns_changed(self.eval_frame, copy_eval_frame):
             fig = plot_pareto_after(self.eval_frame , pareto_optimal_points_after)
-            wandb_update(fig,self.wallet.hotkey.ss58_address,vali_config)
+            # wandb_update(fig,self.wallet.hotkey.ss58_address,vali_config)
             # fig.show()
 
 
@@ -346,37 +366,3 @@ async def forward(self):
     except Exception as e:
         bt.logging.error(f"Unexpected error: {e}")
         bt.logging.error(traceback.format_exc())
-
-
-
-
-    
-    # Send a GET request to the server
-    # response = requests.get(url)
-
-
-    # TODO(developer): Define how the validator selects a miner to query, how often, etc.
-    # get_random_uids is an example method, but you can replace it with your own.
-    # miner_uids = get_random_uids(self, k=self.config.neuron.sample_size)
-
-    # # The dendrite client queries the network.
-    # responses = await self.dendrite(
-    #     # Send the query to selected miner axons in the network.
-    #     axons=[self.metagraph.axons[uid] for uid in miner_uids],
-    #     # Construct a dummy query. This simply contains a single integer.
-    #     synapse=Dummy(dummy_input=self.step),
-    #     # All responses have the deserialize function called on them before returning.
-    #     # You are encouraged to define your own deserialization function.
-    #     deserialize=True,
-    # )
-
-    # # Log the results for monitoring purposes.
-    # bt.logging.info(f"Received responses: {responses}")
-
-    # # TODO(developer): Define how the validator scores responses.
-    # # Adjust the scores based on responses from miners.
-    # rewards = get_rewards(self, query=self.step, responses=responses)
-
-    # bt.logging.info(f"Scored responses: {rewards}")
-    # # Update the scores based on the rewards. You may want to define your own update_scores function for custom behavior.
-    # self.update_scores(rewards, miner_uids)

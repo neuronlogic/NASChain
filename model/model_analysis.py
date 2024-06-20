@@ -12,6 +12,8 @@ class ModelAnalysis:
             output_as_string=False,
             output_precision=4,
             print_detailed=False,
+            print_results= False,
+
         )
         return params, macs, flops
 
