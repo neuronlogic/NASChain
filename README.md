@@ -44,7 +44,8 @@ Your models should be loadable and trainable using the generic `torch.load()` me
 
 ### 4. Model File Size
 NAS is about training small models. There is a file size limit that you can upload as described in `vali_config.py`. Uploading larger model sizes than the limit will be rejected by the validator code. Exceptions will also be thrown during miner model upload if the size exceeds the limit. This limitation is to prevent overloading the validator with models that have billions of parameters unnecessarily for the dataset.
-
+### 5. Duplicate Uploads
+If the same architecture is uploaded multiple times by the same or different miners and the model is on the Pareto Optimal line and needs to be rewarded, only the miner with the oldest commit date for that model will be rewarded. For example, if two models uploaded to the chain and HF have exactly 500k parameters and 90% accuracy, the miner that uploaded the model first will be rewarded for that model if it is the top model.
 ---
 
 ## Hardware Requirements
@@ -99,19 +100,20 @@ We recommend using virtual environments such as Conda to manage and isolate your
       ```
    3. To run a miner and train a dummy model, use only your Hugging Face username for `--hf_repo_id`. A model repository under the name `naschain` will be automatically created:
       ```bash
-      python neurons/miner.py --netuid 123 --subtensor.network test --wallet.name <wallet_cold_name> --wallet.hotkey <wallet_hot_name> --logging.debug --hf_repo_id <your_hf_repo_id>
+      python neurons/miner.py --netuid 123 --subtensor.network test --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name> --logging.debug --hf_repo_id <your_hf_repo_id>
       ```
    4. Run a Miner with a Pretrained(.pt) PyTorch Model (Model Exported by NAS in a Different Directory):
       ```bash
-      python neurons/miner.py --netuid 123 --subtensor.network test --wallet.name <wallet_cold_name> --wallet.hotkey <wallet_hot_name> --logging.debug --hf_repo_id <your_hf_repo_id> --model.dir path/to/model/model.pt
+      python neurons/miner.py --netuid 123 --subtensor.network test --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name> --logging.debug --hf_repo_id <your_hf_repo_id> --model.dir path/to/model/model.pt
       ```
 
 6. **Running the Validator:**
-1. Create wandb account 
-2. Export the wandb env variable 
-   ```bash
-   export WANDB_API_KEY='you_wandb_API_key'
-   ```
-
-   ```bash
-   TODO
+   1. Create wandb account 
+   2. Export the wandb env variable 
+      ```bash
+      export WANDB_API_KEY='you_wandb_API_key'
+      ```
+   3. Run Validator:
+      ```bash
+      python neurons/validator.py --netuid 123 --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name>  --logging.debug --logging.trace  --subtensor.network test
+      ```
