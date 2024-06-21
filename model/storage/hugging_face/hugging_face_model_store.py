@@ -67,7 +67,7 @@ class HuggingFaceModelStore(RemoteModelStore):
         # TODO consider skipping the redownload if a hash is already provided.
         # To get the hash we need to redownload it at a local tmp directory after which it can be deleted.
         with tempfile.TemporaryDirectory() as temp_dir:
-            model_with_hash = await self.download_model(model_id_with_commit, temp_dir, vali_config.max_download_file_size)
+            model_with_hash, _ = await self.download_model(model_id_with_commit, temp_dir, vali_config.max_download_file_size)
             # Return a ModelId with both the correct commit and hash.
             return model_with_hash.id
 
