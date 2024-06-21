@@ -23,11 +23,12 @@ from src.protocol import Dummy
 from src.validator.reward import get_rewards
 from src.utils.uids import get_random_uids
 import torch
-
+import concurrent.futures
 import pandas as pd
 import requests
 import bittensor as bt  # Assuming this is the correct way to import bittensor in your context
 import asyncio
+import threading
 from model.storage.chain.chain_model_metadata_store import ChainModelMetadataStore
 from model.storage.hugging_face.hugging_face_model_store import HuggingFaceModelStore
 from model.storage.disk import utils
@@ -150,60 +151,87 @@ def filter_pareto_by_commit_date(df):
     
     return df
 
+def train_model(uid, model_dir, original_accuracy, trainer):
+    result = {'uid': uid, 'new_accuracy': None, 'original_accuracy': original_accuracy, 'reward': False, 'error': None}
+    thread_id = threading.get_ident()  # Initialize thread_id here
+    model = None
+    retrained_model = None
+    try:
+        bt.logging.info(f"Thread {thread_id} started for UID: {uid}")
+        model = torch.load(model_dir)
+        trainer.initialize_weights(model)
+        retrained_model = trainer.train(model)
+        new_accuracy = trainer.test(retrained_model)
+        result['new_accuracy'] = new_accuracy
+        if new_accuracy >= original_accuracy:
+            result['reward'] = True
+    except Exception as e:
+        result['error'] = str(e)
+        bt.logging.error(f"validate_pareto error in thread {thread_id} for UID {uid}: {e}")
+        bt.logging.error(traceback.format_exc())
+    finally:
+        if model is not None:
+            del model
+        if retrained_model is not None:
+            del retrained_model
+        torch.cuda.empty_cache()
+        bt.logging.info(f"Thread {thread_id} finished for UID: {uid}")
+    return result
 
 def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
     changes_made = True
+
     while changes_made:
         changes_made = False
-        # Get the current Pareto optimal points excluding validated ones
-        pareto_candidates = df[df['pareto'] & ~df['uid'].isin(validated_uids)].copy()  
+        pareto_candidates = df[df['pareto'] & ~df['uid'].isin(validated_uids)].copy()
         
         if pareto_candidates.empty:
-            break  # Exit loop if no candidates left to validate
+            break
 
-        for index, row in pareto_candidates.iterrows():
-            uid = row['uid']
-            if df.loc[df['uid'] == uid, 'vali_evaluated'].values[0]:
-                bt.logging.info(f"UID: {uid} has already been vali_evaluated.")
-                continue
-            else:
-                bt.logging.info(f"UID: {uid} is being evaluated.")
-            
-            original_accuracy = row['accuracy']
-            model_dir = df.loc[df['uid'] == uid, 'local_model_dir'].values[0]
-            try:
-                model = torch.load(model_dir)
-                trainer.initialize_weights(model)
-                retrained_model = trainer.train(model)
-                new_accuracy = trainer.test(retrained_model)
-                bt.logging.info(f"acc_after_retrain: {new_accuracy}")
-                if new_accuracy >= original_accuracy:
-                    df.loc[df['uid'] == uid, 'reward'] = True  # Reward the model if it passes the check
+        tasks = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            for index, row in pareto_candidates.iterrows():
+                uid = row['uid']
+                if df.loc[df['uid'] == uid, 'vali_evaluated'].values[0]:
+                    bt.logging.info(f"UID: {uid} has already been vali_evaluated.")
+                    continue
                 else:
-                    df.loc[df['uid'] == uid, 'accuracy'] = new_accuracy  # Update the accuracy
-                    df.loc[df['uid'] == uid, 'pareto'] = False  # Mark as not Pareto optimal anymore
+                    bt.logging.info(f"UID: {uid} is being evaluated.")
 
-                validated_uids.add(uid)  # Add to validated to prevent revalidation
-                df.loc[df['uid'] == uid, 'vali_evaluated'] = True  # Set the vali_evaluated flag to True for the processed model
+                original_accuracy = row['accuracy']
+                model_dir = df.loc[df['uid'] == uid, 'local_model_dir'].values[0]
 
-                # Recalculate the Pareto optimal points
+                # Submit the training task
+                bt.logging.info(f"Submitting training task for UID: {uid}")
+                tasks.append(executor.submit(train_model, uid, model_dir, original_accuracy, trainer))
+
+            for future in concurrent.futures.as_completed(tasks):
+                result = future.result()
+                if result['error']:
+                    continue
+
+                uid = result['uid']
+                if result['reward']:
+                    df.loc[df['uid'] == uid, 'reward'] = True
+                else:
+                    df.loc[df['uid'] == uid, 'accuracy'] = result['new_accuracy']
+                    df.loc[df['uid'] == uid, 'pareto'] = False
+
+                validated_uids.add(uid)
+                df.loc[df['uid'] == uid, 'vali_evaluated'] = True
+
                 new_pareto_optimal_uids = find_pareto(df, vali_config)
-                df['pareto'] = False  # Reset all Pareto flags
-                df.loc[df['uid'].isin(new_pareto_optimal_uids), 'pareto'] = True  # Set new Pareto optimal points
-                
-                if new_pareto_optimal_uids:
-                    changes_made = True  # Set changes_made to re-evaluate new Pareto front
-            except Exception as e:
-                bt.logging.error(f"validate_pareto error: {e}")
-                bt.logging.error(traceback.format_exc())
+                df['pareto'] = False
+                df.loc[df['uid'].isin(new_pareto_optimal_uids), 'pareto'] = True
 
-    # First filter those have same params and acc by commit date then set rewards 
+                if new_pareto_optimal_uids:
+                    changes_made = True
+
     df = filter_pareto_by_commit_date(df)
     final_pareto_indices = df[df['pareto']].index
     df.loc[final_pareto_indices, 'reward'] = True
 
     return df
-
 
 
 def wandb_update(plot, hotkey, valiconfig:ValidationConfig):
@@ -356,7 +384,7 @@ async def forward(self):
         bt.logging.info("**********************************")
         if has_columns_changed(self.eval_frame, copy_eval_frame):
             fig = plot_pareto_after(self.eval_frame , pareto_optimal_points_after)
-            wandb_update(fig,self.wallet.hotkey.ss58_address,vali_config)
+            # wandb_update(fig,self.wallet.hotkey.ss58_address,vali_config)
             # fig.show()
 
 
