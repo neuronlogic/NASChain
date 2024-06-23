@@ -141,19 +141,36 @@ class BaseMinerNeuron(BaseNeuron):
                 if not os.path.exists(self.save_dir):
                     os.makedirs(self.save_dir)
                 save_path = os.path.join(self.save_dir, 'model.pt')
-                torch.save(model, save_path)
-                analysis = ModelAnalysis(model)
-                params, macs, flops = analysis.get_analysis()
-                bt.logging.info(f"🖥️ Params, Macs, Flops: {params} , {macs}, {flops}")
+                scripted_model = torch.jit.script(model)
+                scripted_model.save(save_path)
+                # torch.save(model, save_path)
+                # analysis = ModelAnalysis(model)
+                # params, macs, flops = analysis.get_analysis()
+                params = sum(param.numel() for param in model.parameters())
+                bt.logging.info(f"🖥️ Params: {params}")
                 upload_dir = save_path
                 
             else:
                 bt.logging.info("loading model offline!")
                 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-                model = torch.load(self.config.model.dir,map_location="cpu")
-                analysis = ModelAnalysis(model)
-                params, macs, flops = analysis.get_analysis()
-                bt.logging.info(f"🖥️ Params, Macs, Flops: {params} , {macs}, {flops}")
+                # model = torch.load(self.config.model.dir,map_location="cpu")
+                try:
+                    model = torch.jit.load(self.config.model.dir, map_location=device)
+                    bt.logging.info("Torch script model loaded using torch.jit.load")
+                except Exception as e:
+                    bt.logging.warning(f"torch.jit.load failed with error: {e}")
+                    try:
+                        model = torch.load(self.config.model.dir,map_location="cpu")
+                        bt.logging.info("Model loaded using torch.load")
+                    except Exception as jit_e:
+                        bt.logging.error(f"torch.load also failed with error: {jit_e}")
+                        raise
+                
+
+                # analysis = ModelAnalysis(model)
+                # params, macs, flops = analysis.get_analysis()
+                params = sum(param.numel() for param in model.parameters())
+                bt.logging.info(f"🖥️ Params: {params}")
                 upload_dir = self.config.model.dir
 
             model_id = await remote_model_store.upload_model(Model(id=model_id, pt_model=upload_dir))

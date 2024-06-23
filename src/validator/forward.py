@@ -150,6 +150,20 @@ def filter_pareto_by_commit_date(df):
     
     return df
 
+def load_model(model_dir):
+    try:
+        model = torch.jit.load(model_dir)
+        bt.logging.info("Torch script model loaded using torch.jit.load")
+        return model
+    except Exception as e:
+        bt.logging.warning(f"torch.jit.load failed with error: {e}")
+        try:
+            model = torch.load(model_dir)
+            bt.logging.info("Model loaded using torch.load")
+            return model
+        except Exception as jit_e:
+            bt.logging.error(f"torch.load also failed with error: {jit_e}")
+            raise  #
 
 def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
     changes_made = True
@@ -172,7 +186,7 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
             original_accuracy = row['accuracy']
             model_dir = df.loc[df['uid'] == uid, 'local_model_dir'].values[0]
             try:
-                model = torch.load(model_dir)
+                model = load_model(model_dir)
                 trainer.initialize_weights(model)
                 retrained_model = trainer.train(model)
                 new_accuracy = trainer.test(retrained_model)
@@ -292,10 +306,11 @@ async def forward(self):
                 continue
 
             # print(self.eval_frame)
-            model = torch.load(model_with_hash.pt_model)
+            # model = torch.load(model_with_hash.pt_model)
+            model = load_model(model_with_hash.pt_model)
             acc = trainer.test(model)
-            analysis = ModelAnalysis(model)
-            params, macs, flops = analysis.get_analysis()
+            # analysis = ModelAnalysis(model) ToDo: This has issue with torch script
+            params = sum(param.numel() for param in model.parameters())
             self.eval_frame = update_row(self.eval_frame, uid, accuracy = acc,params = params, evaluate = True)
             bt.logging.info(f"Eval Acc: {acc}, Eval Params: {params}") 
             torch.cuda.empty_cache()
@@ -356,7 +371,7 @@ async def forward(self):
         bt.logging.info("**********************************")
         if has_columns_changed(self.eval_frame, copy_eval_frame):
             fig = plot_pareto_after(self.eval_frame , pareto_optimal_points_after)
-            wandb_update(fig,self.wallet.hotkey.ss58_address,vali_config)
+            # wandb_update(fig,self.wallet.hotkey.ss58_address,vali_config)
             # fig.show()
 
 
