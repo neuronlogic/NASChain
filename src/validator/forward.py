@@ -192,6 +192,7 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
                 new_accuracy = trainer.test(retrained_model)
                 bt.logging.info(f"acc_after_retrain: {new_accuracy}")
                 if new_accuracy >= original_accuracy:
+                    df.loc[df['uid'] == uid, 'accuracy'] = new_accuracy
                     df.loc[df['uid'] == uid, 'reward'] = True  # Reward the model if it passes the check
                 else:
                     df.loc[df['uid'] == uid, 'accuracy'] = new_accuracy  # Update the accuracy
@@ -209,7 +210,7 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
                     changes_made = True  # Set changes_made to re-evaluate new Pareto front
             except Exception as e:
                 bt.logging.error(f"validate_pareto error: {e}")
-                bt.logging.error(traceback.format_exc())
+                # bt.logging.error(traceback.format_exc())
 
     # First filter those have same params and acc by commit date then set rewards 
     df = filter_pareto_by_commit_date(df)
@@ -371,7 +372,7 @@ async def forward(self):
         bt.logging.info("**********************************")
         if has_columns_changed(self.eval_frame, copy_eval_frame):
             fig = plot_pareto_after(self.eval_frame , pareto_optimal_points_after)
-            # wandb_update(fig,self.wallet.hotkey.ss58_address,vali_config)
+            wandb_update(fig,self.wallet.hotkey.ss58_address,vali_config)
             # fig.show()
 
 
