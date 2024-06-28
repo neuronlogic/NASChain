@@ -283,7 +283,7 @@ async def forward(self):
                 raise ValueError(f"No metadata is avaiable in chain for miner:{uid}")
             model_with_hash, commit_date = await hg_model_store.download_model(model_metadata.id, local_path='cache', model_size_limit= vali_config.max_download_file_size)
             # bt.logging.info(f"hash_in_metadata: {model_metadata.id.hash}, {model_with_hash.id.hash}, {model_with_hash.pt_model},{model_with_hash.id.commit}")
-            bt.logging.info(f"HF account: {model_metadata.id.namespace}/{model_metadata.id.name}")
+            bt.logging.info(f"HF account: {model_metadata.id.namespace}/{model_metadata.id.name}, commitdate:{commit_date}")
             if model_metadata.id.hash != model_with_hash.id.hash:
                 # raise ValueError(f"Hash mismatch: metadata hash {model_metadata.id.hash} != downloaded model hash {model_with_hash.id.hash}")
                 raise ValueError(f"Hash mismatch: metadata hash {model_metadata.id.hash[-8:]} != downloaded model hash {model_with_hash.id.hash[-8:]}")
