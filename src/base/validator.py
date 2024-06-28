@@ -34,7 +34,7 @@ from src.mock import MockDendrite
 from src.utils.config import add_validator_args
 import pandas as pd
 import os
-
+import wandb
 
 
 class BaseValidatorNeuron(BaseNeuron):
@@ -186,9 +186,15 @@ class BaseValidatorNeuron(BaseNeuron):
 
         # Check that validator is registered on the network.
         self.sync()
-        self.resync_metagraph()
 
         bt.logging.info(f"Validator starting at block: {self.block}")
+        api_key = os.getenv('WANDB_API_KEY')
+        if api_key is not None:
+            # Log in to wandb using the API key from the environment variable
+            wandb.login(key=api_key)
+        else:
+            bt.logging.error("Environment variable WANDB_API_KEY not found. Please set it before running the script.")
+            return
 
         # This loop maintains the validator's operations until intentionally stopped.
         try:
@@ -206,7 +212,6 @@ class BaseValidatorNeuron(BaseNeuron):
                 time.sleep(5)
                 # Sync metagraph and potentially set weights.
                 self.sync()
-                self.resync_metagraph()
 
                 self.step += 1
 

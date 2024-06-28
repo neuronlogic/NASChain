@@ -226,29 +226,11 @@ def filter_columns(df):
     new_df = df[columns].reset_index(drop=True)
     return new_df
 
-import os
-import wandb
-
 def wandb_update(plot, hotkey, valiconfig:ValidationConfig, wandb_df):
-    api_key = os.getenv('WANDB_API_KEY')
-    if api_key is not None:
-        # Log in to wandb using the API key from the environment variable
-        wandb.login(key=api_key)
-    else:
-        print("Environment variable WANDB_API_KEY not found. Please set it before running the script.")
-        return
-
-    # Initialize wandb run with resume allowed, using the hotkey as the run ID
-    wandb.init(project=valiconfig.wandb_project, entity=valiconfig.wandb_entitiy, resume='allow', id=str(hotkey))
-
     # Log the Plotly figure to wandb
     wandb.log({"plotly_plot": wandb.Plotly(plot)})
-
     # Log the DataFrame to wandb
     wandb.log({"dataframe": wandb.Table(dataframe=wandb_df)})
-
-    # Finish the wandb run
-    wandb.finish()
 
 
 
@@ -286,6 +268,8 @@ async def forward(self):
     trainer = ValiTrainer(epochs=vali_config.train_epochs)
     metadata_store = ChainModelMetadataStore(self.subtensor, self.wallet, self.config.netuid)
     hg_model_store = HuggingFaceModelStore()
+    # Initialize wandb run with resume allowed, using the hotkey as the run ID
+    wandb.init(project=vali_config.wandb_project, entity=vali_config.wandb_entitiy, resume='allow', id=str(self.wallet.hotkey.ss58_address))
     copy_eval_frame = self.eval_frame.copy()
     for uid in range(self.metagraph.n.item()):
         hotkey = self.metagraph.hotkeys[uid]
@@ -382,20 +366,21 @@ async def forward(self):
         self.save_validator_state()
         pareto_optimal_points_after = self.eval_frame[self.eval_frame['pareto']]
         bt.logging.info("**********************************")
-        print(self.eval_frame)
-        print(copy_eval_frame)
+        # print(self.eval_frame)
+        # print(copy_eval_frame)
         bt.logging.info("**********************************")
         if has_columns_changed(self.eval_frame, copy_eval_frame):
             fig = plot_pareto_after(self.eval_frame , pareto_optimal_points_after)
             wandb_df = filter_columns(self.eval_frame)
-            bt.logging.info(wandb_df)
+            # bt.logging.info(wandb_df)
             wandb_update(fig,self.wallet.hotkey.ss58_address,vali_config,wandb_df)
             # fig.show()
 
-
+        wandb.finish()
 
         # torch.FloatTensor(rewards).to(self.device), uids, msgs
 
     except Exception as e:
         bt.logging.error(f"Unexpected error: {e}")
         bt.logging.error(traceback.format_exc())
+    
