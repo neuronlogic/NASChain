@@ -220,8 +220,8 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
     return df
 
 def filter_columns(df):
-    # Convert commit_date to string format
-    df['commit_date'] = df['commit_date'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(x) else None)
+    # Convert commit_date to string format only if it's a datetime object
+    df['commit_date'] = df['commit_date'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if isinstance(x, pd.Timestamp) else x)
     
     # Select the required columns
     columns = ['uid', 'commit_date', 'params', 'accuracy', 'pareto', 'reward', 'hf_account']
@@ -232,12 +232,10 @@ def filter_columns(df):
 def wandb_update(plot, hotkey, valiconfig:ValidationConfig, wandb_df):
     # Log the Plotly figure to wandb
     wandb.log({"plotly_plot": wandb.Plotly(plot)})
-    # Convert commit_date to string format
-    wandb_df['commit_date'] = wandb_df['commit_date'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(x) else None)
+    # Convert commit_date to string format only if it's a datetime object
+    wandb_df['commit_date'] = wandb_df['commit_date'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if isinstance(x, pd.Timestamp) else x)
     # Log the DataFrame to wandb
     wandb.log({"dataframe": wandb.Table(dataframe=wandb_df)})
-
-
 
 # Function to check column changes
 def has_columns_changed(df1, df2):
