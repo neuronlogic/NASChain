@@ -40,12 +40,14 @@ Leaking the test set to the training set to gain higher accuracy when evaluated 
 Please take some time to review `dummy_trainer.py`, `vali_trainer.py`, and `vali_config.py`. Follow the hyperparameters used for training, such as the number of epochs, optimizer, and learning scheduler. Validators will evaluate your model based on `vali_trainer.py` and `vali_config.py`. Your model should outperform other models under the same fair conditions. For example, if you train your model for 500 epochs and achieve 95% accuracy, but the validator only trains the model for 50 epochs before evaluation, your pre-evaluation and post-evaluation results will not match, resulting in disqualification.
 
 ### 3. Custom Layer Implementation Not Supported by PyTorch Load and Deserialize Functions
-Your models should be loadable and trainable using the generic `torch.load()` method. Custom layer implementations that require a layer definition alongside the model weights are not currently supported.
+Your models should be loadable and trainable using the generic torch.load() or torch.jit.load() methods. Custom layer implementations that require a layer definition alongside the model weights are not currently supported unless TorchScript can successfully save and load the model.
 
 ### 4. Model File Size
 NAS is about training small models. There is a file size limit that you can upload as described in `vali_config.py`. Uploading larger model sizes than the limit will be rejected by the validator code. Exceptions will also be thrown during miner model upload if the size exceeds the limit. This limitation is to prevent overloading the validator with models that have billions of parameters unnecessarily for the dataset.
+
 ### 5. Duplicate Uploads
 If the same architecture is uploaded multiple times by the same or different miners and the model is on the Pareto Optimal line and needs to be rewarded, only the miner with the oldest commit date for that model will be rewarded. For example, if two models uploaded to the chain and HF have exactly 500k parameters and 90% accuracy, the miner that uploaded the model first will be rewarded for that model if it is the top model.
+
 ---
 
 ## Hardware Requirements
@@ -59,8 +61,6 @@ If the same architecture is uploaded multiple times by the same or different min
 
 - **GPU**: RTX 4090 (required). The validator code uses a fixed seed number to create deterministic results and avoid fluctuations in the results. It is strongly recommended to use a Linux environment and the exact Python version and packages described below. 
 - **CPU**: At least 24 cores. Slow or virtual CPUs slow down the data pipeline, resulting in underutilization of the GPU.
-- **⚠️ Strongly recommended to use bare-metal machines. VMs such as those provided by Runpod have been shown to be very slow. ⚠️**
-
 
 ---
 ## Installation
@@ -92,28 +92,33 @@ We recommend using virtual environments such as Conda to manage and isolate your
     ```bash
     pip install -r requirements.txt
 
-5. **Running the Miner(TestNet):**
+5. **Running Miner:**
    1. Create a Hugging Face account.
-   2. Create a write token(Hugging Face Setting) and export it as an environment variable:
+   2. Create a token with write access(Hugging Face Setting->Tokens) and export it as an environment variable:
       ```bash
       export HF_ACCESS_TOKEN="YOUR_HG_WRITE_TOKEN"
       ```
    3. To run a miner and train a dummy model, use only your Hugging Face username for `--hf_repo_id`. A model repository under the name `naschain` will be automatically created:
       ```bash
-      python neurons/miner.py --netuid 123 --subtensor.network test --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name> --logging.debug --hf_repo_id <your_hf_repo_id>
+      python neurons/miner.py --netuid 31 --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name> --logging.debug --hf_repo_id <your_hf_repo_id>
       ```
-   4. Run a Miner with a Pretrained(.pt) PyTorch Model (Model Exported by NAS in a Different Directory):
+   4. Run a Miner with a Pretrained(.pt) PyTorch Model (Model Exported by NAS in a Different Directory torch.save() or torch.jit.save()):
       ```bash
-      python neurons/miner.py --netuid 123 --subtensor.network test --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name> --logging.debug --hf_repo_id <your_hf_repo_id> --model.dir path/to/model/model.pt
+      python neurons/miner.py --netuid 31 --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name> --logging.debug --hf_repo_id <your_hf_repo_id> --model.dir path/to/model/model.pt
       ```
+   5. For testnet use uid 123 and --subtensor.network test 
 
-6. **Running the Validator:**
-   1. Create wandb account 
+6. **Running Validator:**
+   1. Create wandb account. From use setting page copy you API token.
    2. Export the wandb env variable 
       ```bash
       export WANDB_API_KEY='you_wandb_API_key'
       ```
-   3. Run Validator:
+   3. Mainnet:
+      ```bash
+      python neurons/validator.py --netuid 31 --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name>   --logging.debug --logging.trace
+      ```
+      Testnet:
       ```bash
       python neurons/validator.py --netuid 123 --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name>  --logging.debug --logging.trace  --subtensor.network test
       ```
