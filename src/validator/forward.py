@@ -220,6 +220,9 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
     return df
 
 def filter_columns(df):
+    # Convert commit_date to string format
+    df['commit_date'] = df['commit_date'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(x) else None)
+    
     # Select the required columns
     columns = ['uid', 'commit_date', 'params', 'accuracy', 'pareto', 'reward', 'hf_account']
     # Create a new DataFrame with only the specified columns and reset the index
@@ -229,6 +232,8 @@ def filter_columns(df):
 def wandb_update(plot, hotkey, valiconfig:ValidationConfig, wandb_df):
     # Log the Plotly figure to wandb
     wandb.log({"plotly_plot": wandb.Plotly(plot)})
+    # Convert commit_date to string format
+    wandb_df['commit_date'] = wandb_df['commit_date'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(x) else None)
     # Log the DataFrame to wandb
     wandb.log({"dataframe": wandb.Table(dataframe=wandb_df)})
 
@@ -366,7 +371,7 @@ async def forward(self):
         self.save_validator_state()
         pareto_optimal_points_after = self.eval_frame[self.eval_frame['pareto']]
         bt.logging.info("**********************************")
-        # print(self.eval_frame)
+        print(self.eval_frame)
         # print(copy_eval_frame)
         bt.logging.info("**********************************")
         if has_columns_changed(self.eval_frame, copy_eval_frame):
