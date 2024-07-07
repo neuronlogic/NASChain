@@ -272,7 +272,10 @@ async def forward(self):
     metadata_store = ChainModelMetadataStore(self.subtensor, self.wallet, self.config.netuid)
     hg_model_store = HuggingFaceModelStore()
     # Initialize wandb run with resume allowed, using the hotkey as the run ID
-    wandb.init(project=vali_config.wandb_project, entity=vali_config.wandb_entitiy, resume='allow', id=str(self.wallet.hotkey.ss58_address))
+    try:
+        wandb.init(project=vali_config.wandb_project, entity=vali_config.wandb_entitiy, resume='allow', id=str(self.wallet.hotkey.ss58_address))
+    except Exception as e:
+        bt.logging.error(f"Wandb init error: {e}")    
     copy_eval_frame = self.eval_frame.copy()
     for uid in range(self.metagraph.n.item()):
         hotkey = self.metagraph.hotkeys[uid]

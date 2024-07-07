@@ -50,16 +50,18 @@ class ValiTrainer:
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize((0.49139968, 0.48215827, 0.44653124), (0.24703233, 0.24348505, 0.26158768))
         ])
-
+        
         # Adding Cutout to the transform
         transform_train.transforms.append(Cutout(self.cutout_length))
+        transform_train.transforms.append(transforms.Normalize((0.49139968, 0.48215827, 0.44653124), (0.24703233, 0.24348505, 0.26158768)))
 
-
+        g = torch.Generator()
+        g.manual_seed(0)
 
         self.trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
-        self.trainloader = DataLoader(self.trainset, batch_size=self.batch_size, shuffle=True, num_workers=8)
+        self.trainloader = DataLoader(self.trainset, batch_size=self.batch_size, shuffle=True, num_workers=8,
+                                      worker_init_fn=self.worker_init_fn, generator=g)
 
         transform_test = transforms.Compose([
             transforms.ToTensor(),
@@ -67,14 +69,18 @@ class ValiTrainer:
         ])
         
         self.testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
-        self.testloader = DataLoader(self.testset, batch_size=self.batch_size, shuffle=False, num_workers=8)
+        self.testloader = DataLoader(self.testset, batch_size=self.batch_size, shuffle=False, num_workers=8,
+                                     worker_init_fn=self.worker_init_fn, generator=g)
     
+    
+    def worker_init_fn(self, worker_id):
+        worker_seed = torch.initial_seed() % 2**32
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+        
     def set_seed(self, seed=0):
-        random.seed(seed)
-        torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
-        np.random.seed(seed)
         cudnn.deterministic = True
         cudnn.benchmark = False
         os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
@@ -82,21 +88,25 @@ class ValiTrainer:
         torch.use_deterministic_algorithms(True)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+        torch.manual_seed(seed)
 
 
     def train(self, model):
         self.set_seed(0)
         model = model.to(self.device)
         criterion = nn.CrossEntropyLoss()
-        optimizer = optim.SGD(model.parameters(), lr=self.learning_rate, momentum=self.momentum, weight_decay=self.weight_decay)
+        parameters = filter(lambda p: p.requires_grad, model.parameters()) ## added this 
+        optimizer = optim.SGD(parameters, lr=self.learning_rate, momentum=self.momentum, weight_decay=self.weight_decay)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, self.epochs)
 
         for epoch in range(self.epochs):
             scheduler.step()
-            logging.info(f"Epoch {epoch}, LR: {scheduler.get_lr()[0]}")
+            print(f"Epoch {epoch}, LR: {scheduler.get_lr()[0]}")
             model.droprate = 0.0 * epoch / self.epochs
             model.train()
             running_loss = 0.0
+            correct = 0
+            total = 0
             for i, data in enumerate(self.trainloader, 0):
                 inputs, labels = data
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
@@ -111,11 +121,17 @@ class ValiTrainer:
                 optimizer.step()
 
                 running_loss += loss.item()
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
                 if i % 100 == 99:  # Print every 100 mini-batches
-                    print(f'Epoch [{epoch + 1}, {i + 1}] loss: {running_loss / 100:.3f}')
+                    accuracy = 100 * correct / total
+                    print(f'Epoch [{epoch + 1}, {i + 1}] loss: {running_loss / 100:.3f}, accuracy: {accuracy:.2f}%')
                     running_loss = 0.0
-
+                    correct = 0
+                    total = 0
             self.test(model)
+            
 
         return model
 
@@ -134,9 +150,22 @@ class ValiTrainer:
                 _, predicted = torch.max(outputs.data, 1)
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
-        # print(f'Accuracy of the network on the 10000 test images: {100 * correct / total}%')
+        print(f'Accuracy of the network on the 10000 test images: {100 * correct / total}%')
         return 100 * correct / total
-    def initialize_weights(self, model):
+    
+    def reset_model_weights(self, layer, layer_name=''):
+        if hasattr(layer, 'reset_parameters'):
+            layer.reset_parameters()
+        else:
+            if hasattr(layer, 'children'):
+                for name, child in layer.named_children():
+                    child_name = f"{layer_name}.{name}" if layer_name else name
+                    if isinstance(child, nn.Conv2d):
+                        child.reset_parameters()
+                    else:
+                        self.reset_model_weights(child, child_name)
+
+    def initialize_weights(self,model):
         self.set_seed(0)
         for name, param in model.named_parameters():
             if param.dim() >= 2:  # Ensure the parameter has at least two dimensions
@@ -145,3 +174,4 @@ class ValiTrainer:
             elif param.dim() == 1:  # Handle biases separately if they are one-dimensional
                 if 'bias' in name:
                     nn.init.constant_(param.data, 0)
+        self.reset_model_weights(model)
