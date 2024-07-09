@@ -9,6 +9,7 @@ import numpy as np
 import torch.backends.cudnn as cudnn
 import random
 import os
+import bittensor as bt
 
 class Cutout(object):
     def __init__(self, length):
@@ -101,7 +102,7 @@ class ValiTrainer:
 
         for epoch in range(self.epochs):
             scheduler.step()
-            print(f"Epoch {epoch}, LR: {scheduler.get_lr()[0]}")
+            bt.logging.info(f"Epoch {epoch}, LR: {scheduler.get_lr()[0]}")
             model.droprate = 0.0 * epoch / self.epochs
             model.train()
             running_loss = 0.0
@@ -126,7 +127,7 @@ class ValiTrainer:
                 correct += (predicted == labels).sum().item()
                 if i % 100 == 99:  # Print every 100 mini-batches
                     accuracy = 100 * correct / total
-                    print(f'Epoch [{epoch + 1}, {i + 1}] loss: {running_loss / 100:.3f}, accuracy: {accuracy:.2f}%')
+                    bt.logging.info(f'Epoch [{epoch + 1}, {i + 1}] loss: {running_loss / 100:.3f}, accuracy: {accuracy:.2f}%')
                     running_loss = 0.0
                     correct = 0
                     total = 0
@@ -150,7 +151,7 @@ class ValiTrainer:
                 _, predicted = torch.max(outputs.data, 1)
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
-        print(f'Accuracy of the network on the 10000 test images: {100 * correct / total}%')
+        bt.logging.info(f'Accuracy of the network on the 10000 test images: {100 * correct / total}%')
         return 100 * correct / total
     
     def reset_model_weights(self, layer, layer_name=''):

@@ -193,7 +193,7 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
                 bt.logging.info(f"acc_after_retrain: {new_accuracy}")
                 if new_accuracy >= original_accuracy:
                     df.loc[df['uid'] == uid, 'accuracy'] = new_accuracy
-                    df.loc[df['uid'] == uid, 'reward'] = True  # Reward the model if it passes the check
+                    df.loc[df['uid'] == uid, 'pareto'] = True  # Reward the model if it passes the check
                 else:
                     df.loc[df['uid'] == uid, 'accuracy'] = new_accuracy  # Update the accuracy
                     df.loc[df['uid'] == uid, 'pareto'] = False  # Mark as not Pareto optimal anymore
