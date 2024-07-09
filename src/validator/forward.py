@@ -193,7 +193,7 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
                 bt.logging.info(f"acc_after_retrain: {new_accuracy}")
                 if new_accuracy >= original_accuracy:
                     df.loc[df['uid'] == uid, 'accuracy'] = new_accuracy
-                    df.loc[df['uid'] == uid, 'reward'] = True  # Reward the model if it passes the check
+                    df.loc[df['uid'] == uid, 'pareto'] = True  # Reward the model if it passes the check
                 else:
                     df.loc[df['uid'] == uid, 'accuracy'] = new_accuracy  # Update the accuracy
                     df.loc[df['uid'] == uid, 'pareto'] = False  # Mark as not Pareto optimal anymore
@@ -272,7 +272,10 @@ async def forward(self):
     metadata_store = ChainModelMetadataStore(self.subtensor, self.wallet, self.config.netuid)
     hg_model_store = HuggingFaceModelStore()
     # Initialize wandb run with resume allowed, using the hotkey as the run ID
-    wandb.init(project=vali_config.wandb_project, entity=vali_config.wandb_entitiy, resume='allow', id=str(self.wallet.hotkey.ss58_address))
+    try:
+        wandb.init(project=vali_config.wandb_project, entity=vali_config.wandb_entitiy, resume='allow', id=str(self.wallet.hotkey.ss58_address))
+    except Exception as e:
+        bt.logging.error(f"Wandb init error: {e}")    
     copy_eval_frame = self.eval_frame.copy()
     for uid in range(self.metagraph.n.item()):
         hotkey = self.metagraph.hotkeys[uid]
