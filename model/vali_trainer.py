@@ -10,7 +10,7 @@ import torch.backends.cudnn as cudnn
 import random
 import os
 import bittensor as bt
-
+import math
 class Cutout(object):
     def __init__(self, length):
         self.length = length
@@ -61,8 +61,8 @@ class ValiTrainer:
         g.manual_seed(0)
 
         self.trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
-        self.trainloader = DataLoader(self.trainset, batch_size=self.batch_size, shuffle=True, num_workers=8,
-                                      worker_init_fn=self.worker_init_fn, generator=g)
+        self.trainloader = DataLoader(self.trainset, batch_size=self.batch_size, num_workers=5,
+                                      worker_init_fn=self.worker_init_fn, generator=g,pin_memory=True,shuffle=False)
 
         transform_test = transforms.Compose([
             transforms.ToTensor(),
@@ -70,8 +70,8 @@ class ValiTrainer:
         ])
         
         self.testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
-        self.testloader = DataLoader(self.testset, batch_size=self.batch_size, shuffle=False, num_workers=8,
-                                     worker_init_fn=self.worker_init_fn, generator=g)
+        self.testloader = DataLoader(self.testset, batch_size=self.batch_size, num_workers=5,
+                                     worker_init_fn=self.worker_init_fn, generator=g,pin_memory=True)
     
     
     def worker_init_fn(self, worker_id):
@@ -103,7 +103,7 @@ class ValiTrainer:
         for epoch in range(self.epochs):
             scheduler.step()
             bt.logging.info(f"Epoch {epoch}, LR: {scheduler.get_lr()[0]}")
-            model.droprate = 0.0 * epoch / self.epochs
+            # model.droprate = 0.0 * epoch / self.epochs
             model.train()
             running_loss = 0.0
             correct = 0
@@ -117,8 +117,8 @@ class ValiTrainer:
                 if isinstance(outputs, tuple):
                     outputs = outputs[0]  # Take the f
                 loss = criterion(outputs, labels)
-                nn.utils.clip_grad_norm_(model.parameters(), self.grad_clip)
                 loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), self.grad_clip)
                 optimizer.step()
 
                 running_loss += loss.item()
@@ -171,8 +171,10 @@ class ValiTrainer:
         for name, param in model.named_parameters():
             if param.dim() >= 2:  # Ensure the parameter has at least two dimensions
                 if 'weight' in name:
-                    nn.init.xavier_uniform_(param.data)
+                    nn.init.kaiming_uniform_(param.data, a=math.sqrt(5))
             elif param.dim() == 1:  # Handle biases separately if they are one-dimensional
                 if 'bias' in name:
                     nn.init.constant_(param.data, 0)
+                if 'weight' in name:
+                    nn.init.constant_(param.data, 1.0) 
         self.reset_model_weights(model)

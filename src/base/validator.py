@@ -121,6 +121,7 @@ class BaseValidatorNeuron(BaseNeuron):
             'local_model_dir': pd.Series(dtype='object'),
             'commit': pd.Series(dtype='object'),
             'commit_date': pd.Series(dtype='datetime64[ns]'),
+            'eval_date': pd.Series(dtype='object'),
             'params': pd.Series(dtype='float'),
             'accuracy': pd.Series(dtype='float'),
             'evaluate': pd.Series(dtype='bool'),

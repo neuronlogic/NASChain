@@ -23,7 +23,7 @@ from src.protocol import Dummy
 from src.validator.reward import get_rewards
 from src.utils.uids import get_random_uids
 import torch
-
+from datetime import datetime
 import pandas as pd
 import requests
 import bittensor as bt  # Assuming this is the correct way to import bittensor in your context
@@ -187,6 +187,7 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
             model_dir = df.loc[df['uid'] == uid, 'local_model_dir'].values[0]
             try:
                 model = load_model(model_dir)
+                trainer.__init__(epochs=vali_config.train_epochs)
                 trainer.initialize_weights(model)
                 retrained_model = trainer.train(model)
                 new_accuracy = round(trainer.test(retrained_model),1)
@@ -210,6 +211,11 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
                     changes_made = True  # Set changes_made to re-evaluate new Pareto front
             except Exception as e:
                 bt.logging.error(f"validate_pareto error: {e}")
+                # cant validate the model and remove accuracy
+                df.loc[df['uid'] == uid, 'accuracy'] = 0
+                df.loc[df['uid'] == uid, 'vali_evaluated'] = True
+                df.loc[df['uid'] == uid, 'pareto'] = False
+
                 # bt.logging.error(traceback.format_exc())
 
     # First filter those have same params and acc by commit date then set rewards 
@@ -224,7 +230,7 @@ def filter_columns(df):
     # df['commit_date'] = df['commit_date'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if isinstance(x, pd.Timestamp) else x)
     
     # Select the required columns
-    columns = ['uid', 'params', 'accuracy', 'pareto', 'reward', 'hf_account']
+    columns = ['uid', 'params', 'accuracy', 'pareto', 'reward', 'hf_account','commit','eval_date']
     # Create a new DataFrame with only the specified columns and reset the index
     new_df = df[columns].reset_index(drop=True)
     return new_df
@@ -296,6 +302,7 @@ async def forward(self):
                 'local_model_dir': model_with_hash.pt_model,
                 'commit_date': commit_date,
                 'commit': model_with_hash.id.commit,
+                'eval_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'params': float('inf'),
                 'accuracy': 0.0,
                 'evaluate': False,
