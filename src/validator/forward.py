@@ -136,6 +136,9 @@ def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None):
 
 
 def filter_pareto_by_commit_date(df):
+    # Ensure commit_date is in datetime format
+    df['commit_date'] = pd.to_datetime(df['commit_date'])
+    
     # Find all rows where 'pareto' is True
     pareto_df = df[df['pareto']]
 
@@ -171,6 +174,7 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
         changes_made = False
         # Get the current Pareto optimal points excluding validated ones
         pareto_candidates = df[df['pareto'] & ~df['uid'].isin(validated_uids)].copy()  
+        bt.logging.info(f"pareto_candidates_before: {pareto_candidates}")
         
         if pareto_candidates.empty:
             break  # Exit loop if no candidates left to validate
@@ -204,6 +208,7 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
 
                 # Recalculate the Pareto optimal points
                 new_pareto_optimal_uids = find_pareto(df, vali_config)
+                bt.logging.info(f"pareto_candidates_after: {new_pareto_optimal_uids}")
                 df['pareto'] = False  # Reset all Pareto flags
                 df.loc[df['uid'].isin(new_pareto_optimal_uids), 'pareto'] = True  # Set new Pareto optimal points
                 
