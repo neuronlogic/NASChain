@@ -38,6 +38,8 @@ import traceback
 import plotly.graph_objects as go
 import wandb
 import os
+from torch.profiler import profile, record_function, ProfilerActivity
+import math
 
 def plot_pareto_after(df, pareto_optimal_points_after):
     fig = go.Figure()
@@ -48,8 +50,8 @@ def plot_pareto_after(df, pareto_optimal_points_after):
         y=df['accuracy'],
         mode='markers',
         name='All Points',
-        text=df['uid'],  # Add UID to hover data
-        hovertemplate='UID: %{text}<br>Params: %{x}<br>Accuracy: %{y}<extra></extra>'
+        text=df.apply(lambda row: f"UID: {row['uid']}<br>FLOPs: {row['flops']}", axis=1),  # Add UID and FLOPs to hover data
+        hovertemplate='%{text}<br>Params: %{x}<br>Accuracy: %{y}<extra></extra>'
     ))
 
     # Sort and plot Pareto optimal points after validation
@@ -60,8 +62,8 @@ def plot_pareto_after(df, pareto_optimal_points_after):
         mode='markers+lines',
         line=dict(color='red'),
         name='Pareto Optimal',
-        text=pareto_optimal_points_after['uid'],  # Add UID to hover data
-        hovertemplate='UID: %{text}<br>Params: %{x}<br>Accuracy: %{y}<extra></extra>'
+        text=pareto_optimal_points_after.apply(lambda row: f"UID: {row['uid']}<br>FLOPs: {row['flops']}", axis=1),  # Add UID and FLOPs to hover data
+        hovertemplate='%{text}<br>Params: %{x}<br>Accuracy: %{y}<extra></extra>'
     ))
 
     # Update layout
@@ -75,7 +77,7 @@ def plot_pareto_after(df, pareto_optimal_points_after):
     return fig
 
 
-def find_pareto(df, vali_config:ValidationConfig):
+def find_pareto(df, vali_config):
     pareto_optimal_uids = []
     for i, row_i in df.iterrows():
         if row_i['accuracy'] < vali_config.min_accuracy:
@@ -83,7 +85,9 @@ def find_pareto(df, vali_config:ValidationConfig):
         is_pareto = True
         for j, row_j in df.iterrows():
             if i != j:  # Don't compare the point with itself
-                if (row_j['accuracy'] > row_i['accuracy'] and row_j['params'] <= row_i['params']) or (row_j['accuracy'] >= row_i['accuracy'] and row_j['params'] < row_i['params']):
+                if ((row_j['accuracy'] > row_i['accuracy'] and row_j['params'] <= row_i['params'] and row_j['flops'] <= row_i['flops']) or
+                    (row_j['accuracy'] >= row_i['accuracy'] and row_j['params'] < row_i['params'] and row_j['flops'] <= row_i['flops']) or
+                    (row_j['accuracy'] >= row_i['accuracy'] and row_j['params'] <= row_i['params'] and row_j['flops'] < row_i['flops'])):
                     is_pareto = False
                     break
         if is_pareto:
@@ -114,7 +118,7 @@ def append_row(df, row_data):
     return df
 
 
-def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None):
+def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None, flops =None):
     # Check if the uid exists in the DataFrame
     existing_row_index = df.index[df['uid'] == uid].tolist()
 
@@ -123,6 +127,8 @@ def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None):
         index = existing_row_index[0]
         if params is not None:
             df.at[index, 'params'] = params
+        if flops is not None:
+            df.at[index, 'flops'] = flops
         if accuracy is not None:
             df.at[index, 'accuracy'] = accuracy
         if evaluate is not None:
@@ -194,7 +200,7 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
                 trainer.__init__(epochs=vali_config.train_epochs)
                 trainer.initialize_weights(model)
                 retrained_model = trainer.train(model)
-                new_accuracy = round(trainer.test(retrained_model),1)
+                new_accuracy = math.floor(trainer.test(retrained_model))
                 bt.logging.info(f"acc_after_retrain: {new_accuracy}")
                 if new_accuracy >= original_accuracy:
                     df.loc[df['uid'] == uid, 'accuracy'] = new_accuracy
@@ -235,7 +241,7 @@ def filter_columns(df):
     # df['commit_date'] = df['commit_date'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if isinstance(x, pd.Timestamp) else x)
     
     # Select the required columns
-    columns = ['uid', 'params', 'accuracy', 'pareto', 'reward', 'hf_account','commit','eval_date']
+    columns = ['uid', 'params','flops', 'accuracy', 'pareto', 'reward', 'hf_account','commit','eval_date']
     # Create a new DataFrame with only the specified columns and reset the index
     new_df = df[columns].reset_index(drop=True)
     return new_df
@@ -250,11 +256,19 @@ def wandb_update(plot, hotkey, valiconfig:ValidationConfig, wandb_df):
 
 # Function to check column changes
 def has_columns_changed(df1, df2):
-    columns_to_check = ['params', 'accuracy', 'pareto']
+    columns_to_check = ['params', 'accuracy', 'pareto', 'flops']
     for column in columns_to_check:
         if not df1[column].equals(df2[column]):
             return True
-    return False
+    return True
+def calc_flops(model):
+    dummy_input = torch.randn(1, 3, 32, 32).cuda()
+    with profile(activities=[ProfilerActivity.CPU], record_shapes=True,with_flops=True) as prof:
+        with record_function("model_inference"):
+            model(dummy_input)
+    total_mflops = round(prof.key_averages().total_average().flops / 1e6)
+    return total_mflops
+
 
 def get_wandb_api_key():
     return os.getenv('WANDB_API_KEY') 
@@ -309,6 +323,7 @@ async def forward(self):
                 'commit': model_with_hash.id.commit,
                 'eval_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'params': float('inf'),
+                'flops': float('inf'),
                 'accuracy': 0.0,
                 'evaluate': False,
                 'pareto': False,
@@ -321,15 +336,25 @@ async def forward(self):
             # print(self.eval_frame)
             if should_skip_evaluation(self.eval_frame, uid):
                 bt.logging.info(f"Already evaluated the model for uid: {uid}")
+                existing_accuracy = self.eval_frame.loc[self.eval_frame['uid'] == uid, 'accuracy'].values[0]
+                rounded_accuracy = int(math.floor(existing_accuracy))
+                model = load_model(model_with_hash.pt_model)
+                params = sum(param.numel() for param in model.parameters())
+                params = round(params, -3)
+                flops = calc_flops(model)
+                self.eval_frame = update_row(self.eval_frame, uid,flops=flops, params = params,accuracy=rounded_accuracy)
+                bt.logging.info(f"Params: {params} RoundedACC: {rounded_accuracy} MFlops: {flops}")
                 continue
 
             # print(self.eval_frame)
             # model = torch.load(model_with_hash.pt_model)
             model = load_model(model_with_hash.pt_model)
-            acc = round(trainer.test(model),1)
+            acc = math.floor(trainer.test(model))
             # analysis = ModelAnalysis(model) ToDo: This has issue with torch script
             params = sum(param.numel() for param in model.parameters())
-            self.eval_frame = update_row(self.eval_frame, uid, accuracy = acc,params = params, evaluate = True)
+            params = round(params, -3)
+            flops = calc_flops(model)
+            self.eval_frame = update_row(self.eval_frame, uid,flops=flops, accuracy = acc,params = params, evaluate = True)
             bt.logging.info(f"Eval Acc: {acc}, Eval Params: {params}") 
             torch.cuda.empty_cache()
 
