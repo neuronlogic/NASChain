@@ -77,6 +77,35 @@ def plot_pareto_after(df, pareto_optimal_points_after):
     return fig
 
 
+
+# def plot_pareto_after(df, pareto_optimal_points_after):
+#     # Determine color based on Pareto optimality directly in the plot data preparation
+#     colors = [1 if uid in pareto_optimal_points_after['uid'].values else 0 for uid in df['uid']]  # 1 for red, 0 for gray
+
+#     fig = go.Figure(data=
+#         go.Parcoords(
+#             line=dict(
+#                 color=colors,  # Applying colors to lines
+#                 colorscale=[[0, 'gray'], [1, 'red']],  # Mapping 0 to gray and 1 to red
+#                 showscale=False  # Optionally hide the color scale legend
+#             ),
+#             dimensions=[
+#                 dict(label='UID', values=df['uid']),
+#                 dict(label='Params', values=df['params'], tickformat=".0f"),
+#                 dict(label='FLOPs', values=df['flops'], tickformat=".0f"),
+#                 dict(label='Accuracy', values=df['accuracy'], tickformat=".2f")
+#             ]
+#         )
+#     )
+
+#     # Update layout
+#     fig.update_layout(
+#         title='Parallel Coordinates: UID, Params, FLOPs, and Accuracy',
+#         plot_bgcolor='white'
+#     )
+
+#     return fig
+
 def find_pareto(df, vali_config):
     pareto_optimal_uids = []
     for i, row_i in df.iterrows():
@@ -260,7 +289,7 @@ def has_columns_changed(df1, df2):
     for column in columns_to_check:
         if not df1[column].equals(df2[column]):
             return True
-    return True
+    return False
 def calc_flops(model):
     dummy_input = torch.randn(1, 3, 32, 32).cuda()
     with profile(activities=[ProfilerActivity.CPU], record_shapes=True,with_flops=True) as prof:
