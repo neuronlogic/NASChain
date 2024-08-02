@@ -26,7 +26,7 @@ import torch
 from datetime import datetime
 import pandas as pd
 import requests
-import bittensor as bt  # Assuming this is the correct way to import bittensor in your context
+import bittensor as bt
 import asyncio
 from model.storage.chain.chain_model_metadata_store import ChainModelMetadataStore
 from model.storage.hugging_face.hugging_face_model_store import HuggingFaceModelStore
@@ -40,6 +40,8 @@ import wandb
 import os
 from torch.profiler import profile, record_function, ProfilerActivity
 import math
+import numpy as np
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
 def plot_pareto_after(df, pareto_optimal_points_after):
     fig = go.Figure()
@@ -134,13 +136,10 @@ def append_row(df, row_data):
     existing_row_index = df.index[df['uid'] == row_data['uid']].tolist()
 
     if existing_row_index:
-        # Check if the commit value is different
         index = existing_row_index[0]
         if df.loc[index, 'commit'] != row_data['commit']:
-            # Update the existing row
             df.loc[index] = row_data
     else:
-        # If uid does not exist, append the new row
         new_row = pd.DataFrame([row_data])
         df = pd.concat([df, new_row], ignore_index=True)
 
@@ -173,8 +172,6 @@ def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None, 
 def filter_pareto_by_commit_date(df):
     # Ensure commit_date is in datetime format
     df['commit_date'] = pd.to_datetime(df['commit_date'])
-    
-    # Find all rows where 'pareto' is True
     pareto_df = df[df['pareto']]
 
     # Group by 'accuracy' and 'params' and filter within groups
@@ -265,11 +262,26 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
 
     return df
 
+
+def calculate_exponential_rewards(df):
+    # Filter the DataFrame for rows where 'reward' is True and get their accuracies
+    rewarded_models = df[df['reward'] == True][['uid', 'accuracy']]
+    scaled_accuracies = np.exp((rewarded_models['accuracy'] - rewarded_models['accuracy'].min()) / (rewarded_models['accuracy'].max() - rewarded_models['accuracy'].min()))
+    
+    # Normalize the scaled accuracies to sum to 1
+    total_scaled_accuracy = scaled_accuracies.sum()
+    rewarded_models['reward'] = scaled_accuracies / total_scaled_accuracy
+    
+    # Extract the UIDs and rewards into separate lists
+    rewarded_uids = rewarded_models['uid'].tolist()
+    rewards = rewarded_models['reward'].tolist()
+    
+    # Return the separate lists
+    return rewarded_uids, rewards
+
 def filter_columns(df):
-    # Convert commit_date to string format only if it's a datetime object
     # df['commit_date'] = df['commit_date'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if isinstance(x, pd.Timestamp) else x)
     
-    # Select the required columns
     columns = ['uid', 'params','flops', 'accuracy', 'pareto', 'reward', 'hf_account','commit','eval_date']
     # Create a new DataFrame with only the specified columns and reset the index
     new_df = df[columns].reset_index(drop=True)
@@ -425,13 +437,13 @@ async def forward(self):
 
 
     
-        
-        rewarded_uids = self.eval_frame[self.eval_frame['reward'] == True]['uid'].tolist()
-        num_rewarded = len(rewarded_uids)
-        if num_rewarded > 0:
-            rewards = [1.0 / num_rewarded] * num_rewarded
-        else:
-            rewards = []
+        rewarded_uids, rewards = calculate_exponential_rewards(self.eval_frame ) 
+        # rewarded_uids = self.eval_frame[self.eval_frame['reward'] == True]['uid'].tolist()
+        # num_rewarded = len(rewarded_uids)
+        # if num_rewarded > 0:
+        #     rewards = [1.0 / num_rewarded] * num_rewarded
+        # else:
+        #     rewards = []
         bt.logging.info(f"Rewarded_uids: {rewarded_uids}")
         bt.logging.info(f"Rewards: {rewards}")
         self.update_scores(torch.FloatTensor(rewards).to(self.device), rewarded_uids)
