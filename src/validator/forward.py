@@ -80,6 +80,35 @@ def plot_pareto_after(df, pareto_optimal_points_after):
 
 
 
+def plot_rewards(df):
+    sorted_df = df.sort_values(by='score')
+    x_values = list(range(len(sorted_df)))
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x_values,
+        y=sorted_df['score'],
+        mode='markers',
+        text=sorted_df['uid'],  # UID as hover text
+        marker=dict(
+            size=10,  # Adjust size for better visibility
+            color=sorted_df['score'],  # Optional: use reward as color
+            colorbar=dict(title='score'),
+            colorscale='Viridis'
+        ),
+        hoverinfo='text+y',  # Show UID and Reward on hover
+    ))
+    
+    fig.update_layout(
+        title='Rewards vs. Sorted Scores',
+        xaxis_title='Sorted Score Index',
+        yaxis_title='Reward',
+        xaxis=dict(showgrid=False),  
+        yaxis=dict(showgrid=True),   
+        plot_bgcolor='white',        
+    )
+    
+    return fig
+
 # def plot_pareto_after(df, pareto_optimal_points_after):
 #     # Determine color based on Pareto optimality directly in the plot data preparation
 #     colors = [1 if uid in pareto_optimal_points_after['uid'].values else 0 for uid in df['uid']]  # 1 for red, 0 for gray
@@ -136,10 +165,13 @@ def append_row(df, row_data):
     existing_row_index = df.index[df['uid'] == row_data['uid']].tolist()
 
     if existing_row_index:
+        # Check if the commit value is different
         index = existing_row_index[0]
         if df.loc[index, 'commit'] != row_data['commit']:
+            # Update the existing row
             df.loc[index] = row_data
     else:
+        # If uid does not exist, append the new row
         new_row = pd.DataFrame([row_data])
         df = pd.concat([df, new_row], ignore_index=True)
 
@@ -173,17 +205,18 @@ def filter_pareto_by_commit_date(df):
     # Ensure commit_date is in datetime format
     df['commit_date'] = pd.to_datetime(df['commit_date'])
     pareto_df = df[df['pareto']]
-
-    # Group by 'accuracy' and 'params' and filter within groups
-    for (accuracy, params), group in pareto_df.groupby(['accuracy', 'params']):
+    
+    # Group by 'accuracy', 'params', and 'pareto' and filter within groups
+    for (accuracy, params, pareto), group in pareto_df.groupby(['accuracy', 'params', 'pareto']):
         if len(group) > 1:
             # Find the row with the oldest commit_date
             oldest_row_index = group['commit_date'].idxmin()
             
-            # Set 'pareto' to False for all other rows with the same accuracy and params
-            df.loc[(df['accuracy'] == accuracy) & (df['params'] == params) & (df.index != oldest_row_index), 'pareto'] = False
+            # Set 'pareto' to False for all other rows with the same accuracy, params, and pareto status
+            df.loc[(df['accuracy'] == accuracy) & (df['params'] == params) & (df['pareto'] == pareto) & (df.index != oldest_row_index), 'pareto'] = False
     
     return df
+
 
 def load_model(model_dir):
     try:
@@ -263,33 +296,58 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
     return df
 
 
+def assign_rewards_to_eval_frame(df, rewarded_uids, rewards):
+    # Initialize or reset all rewards to 0.0
+    df['score'] = 0.0
+
+    # Update the rewards for rewarded UIDs
+    for uid, reward in zip(rewarded_uids, rewards):
+        df.loc[df['uid'] == uid, 'score'] = reward
+
+    return df
+
+
+import numpy as np
+import pandas as pd
+
 def calculate_exponential_rewards(df):
-    # Filter the DataFrame for rows where 'reward' is True and get their accuracies
-    rewarded_models = df[df['reward'] == True][['uid', 'accuracy']]
-    scaled_accuracies = np.exp((rewarded_models['accuracy'] - rewarded_models['accuracy'].min()) / (rewarded_models['accuracy'].max() - rewarded_models['accuracy'].min()))
+    # Filter to include only those models marked for reward
+    rewarded_models = df[df['reward'] == True][['uid', 'accuracy', 'params', 'flops']]
     
-    # Normalize the scaled accuracies to sum to 1
-    total_scaled_accuracy = scaled_accuracies.sum()
-    rewarded_models['reward'] = scaled_accuracies / total_scaled_accuracy
-    
-    # Extract the UIDs and rewards into separate lists
+    # Normalize each metric to a 0-1 range
+    rewarded_models['norm_accuracy'] = (rewarded_models['accuracy'] - rewarded_models['accuracy'].min()) / (rewarded_models['accuracy'].max() - rewarded_models['accuracy'].min())
+    rewarded_models['norm_params'] = (rewarded_models['params'] - rewarded_models['params'].min()) / (rewarded_models['params'].max() - rewarded_models['params'].min())
+    rewarded_models['norm_flops'] = (rewarded_models['flops'] - rewarded_models['flops'].min()) / (rewarded_models['flops'].max() - rewarded_models['flops'].min())
+
+    # By using negative coefficients for these values (-0.2), the formula decreases the combined score for models with high params and flops
+    rewarded_models['combined_score'] = rewarded_models['norm_accuracy'] - 0.25 * rewarded_models['norm_params'] - 0.5 * rewarded_models['norm_flops']
+
+    # Apply np.log1p to the combined score for scaling
+    scaled_scores = np.log1p(rewarded_models['combined_score'] - rewarded_models['combined_score'].min())
+
+    # Normalize the scaled values so they sum to 1
+    total_scaled_score = scaled_scores.sum()
+    rewarded_models['reward'] = scaled_scores / total_scaled_score
+
+    # Prepare output lists
     rewarded_uids = rewarded_models['uid'].tolist()
     rewards = rewarded_models['reward'].tolist()
-    
-    # Return the separate lists
+
     return rewarded_uids, rewards
+
 
 def filter_columns(df):
     # df['commit_date'] = df['commit_date'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if isinstance(x, pd.Timestamp) else x)
     
-    columns = ['uid', 'params','flops', 'accuracy', 'pareto', 'reward', 'hf_account','commit','eval_date']
+    columns = ['uid', 'params','flops', 'accuracy', 'pareto', 'reward', 'hf_account','commit','eval_date','score']
     # Create a new DataFrame with only the specified columns and reset the index
     new_df = df[columns].reset_index(drop=True)
     return new_df
 
-def wandb_update(plot, hotkey, valiconfig:ValidationConfig, wandb_df):
+def wandb_update(plot, reward_plot, hotkey, valiconfig:ValidationConfig, wandb_df):
     # Log the Plotly figure to wandb
     wandb.log({"plotly_plot": wandb.Plotly(plot)})
+    wandb.log({"reward_plot": wandb.Plotly(reward_plot)})
     # Convert commit_date to string format only if it's a datetime object
     # wandb_df['commit_date'] = wandb_df['commit_date'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if isinstance(x, pd.Timestamp) else x)
     # Log the DataFrame to wandb
@@ -438,6 +496,7 @@ async def forward(self):
 
     
         rewarded_uids, rewards = calculate_exponential_rewards(self.eval_frame ) 
+        self.eval_frame = assign_rewards_to_eval_frame(self.eval_frame, rewarded_uids, rewards)
         # rewarded_uids = self.eval_frame[self.eval_frame['reward'] == True]['uid'].tolist()
         # num_rewarded = len(rewarded_uids)
         # if num_rewarded > 0:
@@ -455,9 +514,10 @@ async def forward(self):
         bt.logging.info("**********************************")
         if has_columns_changed(self.eval_frame, copy_eval_frame):
             fig = plot_pareto_after(self.eval_frame , pareto_optimal_points_after)
+            fig_reward = plot_rewards(self.eval_frame)
             wandb_df = filter_columns(self.eval_frame)
             # bt.logging.info(wandb_df)
-            wandb_update(fig,self.wallet.hotkey.ss58_address,vali_config,wandb_df)
+            wandb_update(fig,fig_reward,self.wallet.hotkey.ss58_address,vali_config,wandb_df)
             # fig.show()
 
         wandb.finish()
