@@ -18,7 +18,8 @@ NASChain aims to address these challenges by leveraging the power of the Bittens
 ---
 ## How it works
 
-1. **Miners Running NAS Algorithm:** Miners execute the Neural Architecture Search (NAS) algorithm on the dataset described by the sample mining code. The objective of the NAS is to minimize the number of parameters while maximizing accuracy on the test set.
+1. **Miners Running NAS Algorithm:** Miners execute the Neural Architecture Search (NAS) algorithm on the dataset described by the sample mining code. The objective of the NAS is to minimize the number of parameters while maximizing accuracy on the test set. NSGA-Net based NAS models are supported by validators and provide a good starting point for miners to run multi-objective optimization.
+ 
    
 2. **Model Submission:** Miners upload their best models to Hugging Face with the miner code and submit the metadata for the commit to the blockchain.
 

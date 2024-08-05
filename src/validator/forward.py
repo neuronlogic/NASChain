@@ -1,8 +1,5 @@
 # The MIT License (MIT)
 # Copyright © 2023 Yuma Rao
-# Developer: Nima Aghli   
-# Copyright © 2023 Nima Aghli
-
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
 # documentation files (the “Software”), to deal in the Software without restriction, including without limitation
 # the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software,
@@ -26,7 +23,7 @@ import torch
 from datetime import datetime
 import pandas as pd
 import requests
-import bittensor as bt  # Assuming this is the correct way to import bittensor in your context
+import bittensor as bt
 import asyncio
 from model.storage.chain.chain_model_metadata_store import ChainModelMetadataStore
 from model.storage.hugging_face.hugging_face_model_store import HuggingFaceModelStore
@@ -38,6 +35,10 @@ import traceback
 import plotly.graph_objects as go
 import wandb
 import os
+from torch.profiler import profile, record_function, ProfilerActivity
+import math
+import numpy as np
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
 def plot_pareto_after(df, pareto_optimal_points_after):
     fig = go.Figure()
@@ -48,8 +49,8 @@ def plot_pareto_after(df, pareto_optimal_points_after):
         y=df['accuracy'],
         mode='markers',
         name='All Points',
-        text=df['uid'],  # Add UID to hover data
-        hovertemplate='UID: %{text}<br>Params: %{x}<br>Accuracy: %{y}<extra></extra>'
+        text=df.apply(lambda row: f"UID: {row['uid']}<br>FLOPs: {row['flops']}", axis=1),  # Add UID and FLOPs to hover data
+        hovertemplate='%{text}<br>Params: %{x}<br>Accuracy: %{y}<extra></extra>'
     ))
 
     # Sort and plot Pareto optimal points after validation
@@ -60,8 +61,8 @@ def plot_pareto_after(df, pareto_optimal_points_after):
         mode='markers+lines',
         line=dict(color='red'),
         name='Pareto Optimal',
-        text=pareto_optimal_points_after['uid'],  # Add UID to hover data
-        hovertemplate='UID: %{text}<br>Params: %{x}<br>Accuracy: %{y}<extra></extra>'
+        text=pareto_optimal_points_after.apply(lambda row: f"UID: {row['uid']}<br>FLOPs: {row['flops']}", axis=1),  # Add UID and FLOPs to hover data
+        hovertemplate='%{text}<br>Params: %{x}<br>Accuracy: %{y}<extra></extra>'
     ))
 
     # Update layout
@@ -75,7 +76,65 @@ def plot_pareto_after(df, pareto_optimal_points_after):
     return fig
 
 
-def find_pareto(df, vali_config:ValidationConfig):
+
+def plot_rewards(df):
+    sorted_df = df.sort_values(by='score')
+    x_values = list(range(len(sorted_df)))
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x_values,
+        y=sorted_df['score'],
+        mode='markers',
+        text=sorted_df['uid'],  # UID as hover text
+        marker=dict(
+            size=10,  # Adjust size for better visibility
+            color=sorted_df['score'],  # Optional: use reward as color
+            colorbar=dict(title='score'),
+            colorscale='Viridis'
+        ),
+        hoverinfo='text+y',  # Show UID and Reward on hover
+    ))
+    
+    fig.update_layout(
+        title='Rewards vs. Sorted Scores',
+        xaxis_title='Sorted Score Index',
+        yaxis_title='Reward',
+        xaxis=dict(showgrid=False),  
+        yaxis=dict(showgrid=True),   
+        plot_bgcolor='white',        
+    )
+    
+    return fig
+
+# def plot_pareto_after(df, pareto_optimal_points_after):
+#     # Determine color based on Pareto optimality directly in the plot data preparation
+#     colors = [1 if uid in pareto_optimal_points_after['uid'].values else 0 for uid in df['uid']]  # 1 for red, 0 for gray
+
+#     fig = go.Figure(data=
+#         go.Parcoords(
+#             line=dict(
+#                 color=colors,  # Applying colors to lines
+#                 colorscale=[[0, 'gray'], [1, 'red']],  # Mapping 0 to gray and 1 to red
+#                 showscale=False  # Optionally hide the color scale legend
+#             ),
+#             dimensions=[
+#                 dict(label='UID', values=df['uid']),
+#                 dict(label='Params', values=df['params'], tickformat=".0f"),
+#                 dict(label='FLOPs', values=df['flops'], tickformat=".0f"),
+#                 dict(label='Accuracy', values=df['accuracy'], tickformat=".2f")
+#             ]
+#         )
+#     )
+
+#     # Update layout
+#     fig.update_layout(
+#         title='Parallel Coordinates: UID, Params, FLOPs, and Accuracy',
+#         plot_bgcolor='white'
+#     )
+
+#     return fig
+
+def find_pareto(df, vali_config):
     pareto_optimal_uids = []
     for i, row_i in df.iterrows():
         if row_i['accuracy'] < vali_config.min_accuracy:
@@ -83,7 +142,9 @@ def find_pareto(df, vali_config:ValidationConfig):
         is_pareto = True
         for j, row_j in df.iterrows():
             if i != j:  # Don't compare the point with itself
-                if (row_j['accuracy'] > row_i['accuracy'] and row_j['params'] <= row_i['params']) or (row_j['accuracy'] >= row_i['accuracy'] and row_j['params'] < row_i['params']):
+                if ((row_j['accuracy'] > row_i['accuracy'] and row_j['params'] <= row_i['params'] and row_j['flops'] <= row_i['flops']) or
+                    (row_j['accuracy'] >= row_i['accuracy'] and row_j['params'] < row_i['params'] and row_j['flops'] <= row_i['flops']) or
+                    (row_j['accuracy'] >= row_i['accuracy'] and row_j['params'] <= row_i['params'] and row_j['flops'] < row_i['flops'])):
                     is_pareto = False
                     break
         if is_pareto:
@@ -114,7 +175,7 @@ def append_row(df, row_data):
     return df
 
 
-def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None):
+def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None, flops =None):
     # Check if the uid exists in the DataFrame
     existing_row_index = df.index[df['uid'] == uid].tolist()
 
@@ -123,6 +184,8 @@ def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None):
         index = existing_row_index[0]
         if params is not None:
             df.at[index, 'params'] = params
+        if flops is not None:
+            df.at[index, 'flops'] = flops
         if accuracy is not None:
             df.at[index, 'accuracy'] = accuracy
         if evaluate is not None:
@@ -136,22 +199,18 @@ def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None):
 
 
 def filter_pareto_by_commit_date(df):
-    # Ensure commit_date is in datetime format
     df['commit_date'] = pd.to_datetime(df['commit_date'])
-    
-    # Find all rows where 'pareto' is True
     pareto_df = df[df['pareto']]
-
-    # Group by 'accuracy' and 'params' and filter within groups
-    for (accuracy, params), group in pareto_df.groupby(['accuracy', 'params']):
+    # Group by 'accuracy', 'params', and 'flops' and filter within groups
+    for (accuracy, params, flops), group in pareto_df.groupby(['accuracy', 'params', 'flops']):
         if len(group) > 1:
             # Find the row with the oldest commit_date
             oldest_row_index = group['commit_date'].idxmin()
-            
-            # Set 'pareto' to False for all other rows with the same accuracy and params
-            df.loc[(df['accuracy'] == accuracy) & (df['params'] == params) & (df.index != oldest_row_index), 'pareto'] = False
+            # Set 'pareto' to False for all other rows with the same accuracy, params, and flops
+            df.loc[(df['accuracy'] == accuracy) & (df['params'] == params) & (df['flops'] == flops) & (df.index != oldest_row_index), 'pareto'] = False
     
     return df
+
 
 def load_model(model_dir):
     try:
@@ -194,7 +253,7 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
                 trainer.__init__(epochs=vali_config.train_epochs)
                 trainer.initialize_weights(model)
                 retrained_model = trainer.train(model)
-                new_accuracy = round(trainer.test(retrained_model),1)
+                new_accuracy = math.floor(trainer.test(retrained_model))
                 bt.logging.info(f"acc_after_retrain: {new_accuracy}")
                 if new_accuracy >= original_accuracy:
                     df.loc[df['uid'] == uid, 'accuracy'] = new_accuracy
@@ -230,19 +289,57 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
 
     return df
 
+
+def assign_rewards_to_eval_frame(df, rewarded_uids, rewards):
+    # Initialize or reset all rewards to 0.0
+    df['score'] = 0.0
+
+    # Update the rewards for rewarded UIDs
+    for uid, reward in zip(rewarded_uids, rewards):
+        df.loc[df['uid'] == uid, 'score'] = reward
+
+    return df
+
+
+import numpy as np
+import pandas as pd
+
+def calculate_exponential_rewards(df):
+    rewarded_models = df[df['reward'] == True][['uid', 'accuracy', 'params', 'flops']]
+
+    rewarded_models['norm_accuracy'] = (rewarded_models['accuracy'] - rewarded_models['accuracy'].min()) / (rewarded_models['accuracy'].max() - rewarded_models['accuracy'].min())
+    rewarded_models['norm_params'] = (rewarded_models['params'] - rewarded_models['params'].min()) / (rewarded_models['params'].max() - rewarded_models['params'].min())
+    rewarded_models['norm_flops'] = (rewarded_models['flops'] - rewarded_models['flops'].min()) / (rewarded_models['flops'].max() - rewarded_models['flops'].min())
+
+    # By using negative coefficients for these values (-0.2), the formula decreases the combined score for models with high params and flops
+    rewarded_models['combined_score'] = rewarded_models['norm_accuracy'] - 0.25 * rewarded_models['norm_params'] - 0.5 * rewarded_models['norm_flops']
+
+    # Apply np.exp to the combined score for scaling
+    exp_scores = np.exp(rewarded_models['combined_score'])
+
+    # Normalize the scaled values so they sum to 1
+    total_exp_score = exp_scores.sum()
+    rewarded_models['reward'] = exp_scores / total_exp_score
+
+    rewarded_uids = rewarded_models['uid'].tolist()
+    rewards = rewarded_models['reward'].tolist()
+
+    return rewarded_uids, rewards
+
+
+
 def filter_columns(df):
-    # Convert commit_date to string format only if it's a datetime object
     # df['commit_date'] = df['commit_date'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if isinstance(x, pd.Timestamp) else x)
     
-    # Select the required columns
-    columns = ['uid', 'params', 'accuracy', 'pareto', 'reward', 'hf_account','commit','eval_date']
+    columns = ['uid', 'params','flops', 'accuracy', 'pareto', 'reward', 'hf_account','commit','eval_date','score']
     # Create a new DataFrame with only the specified columns and reset the index
     new_df = df[columns].reset_index(drop=True)
     return new_df
 
-def wandb_update(plot, hotkey, valiconfig:ValidationConfig, wandb_df):
+def wandb_update(plot, reward_plot, hotkey, valiconfig:ValidationConfig, wandb_df):
     # Log the Plotly figure to wandb
     wandb.log({"plotly_plot": wandb.Plotly(plot)})
+    wandb.log({"reward_plot": wandb.Plotly(reward_plot)})
     # Convert commit_date to string format only if it's a datetime object
     # wandb_df['commit_date'] = wandb_df['commit_date'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if isinstance(x, pd.Timestamp) else x)
     # Log the DataFrame to wandb
@@ -250,11 +347,19 @@ def wandb_update(plot, hotkey, valiconfig:ValidationConfig, wandb_df):
 
 # Function to check column changes
 def has_columns_changed(df1, df2):
-    columns_to_check = ['params', 'accuracy', 'pareto']
+    columns_to_check = ['params', 'accuracy', 'pareto', 'flops']
     for column in columns_to_check:
         if not df1[column].equals(df2[column]):
             return True
     return False
+def calc_flops(model):
+    dummy_input = torch.randn(1, 3, 32, 32).cuda()
+    with profile(activities=[ProfilerActivity.CPU], record_shapes=True,with_flops=True) as prof:
+        with record_function("model_inference"):
+            model(dummy_input)
+    total_mflops = round(prof.key_averages().total_average().flops / 1e6)
+    return total_mflops
+
 
 def get_wandb_api_key():
     return os.getenv('WANDB_API_KEY') 
@@ -309,27 +414,39 @@ async def forward(self):
                 'commit': model_with_hash.id.commit,
                 'eval_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'params': float('inf'),
+                'flops': float('inf'),
                 'accuracy': 0.0,
                 'evaluate': False,
                 'pareto': False,
                 'reward': False,
                 'vali_evaluated':False,
                 'hf_account': model_metadata.id.namespace + "/" + model_metadata.id.name, 
+                'score': 0.0,
                 
             }
             self.eval_frame = append_row(self.eval_frame, new_row)
             # print(self.eval_frame)
             if should_skip_evaluation(self.eval_frame, uid):
                 bt.logging.info(f"Already evaluated the model for uid: {uid}")
+                existing_accuracy = self.eval_frame.loc[self.eval_frame['uid'] == uid, 'accuracy'].values[0]
+                rounded_accuracy = int(math.floor(existing_accuracy))
+                model = load_model(model_with_hash.pt_model)
+                params = sum(param.numel() for param in model.parameters())
+                params = round(params, -3)
+                flops = calc_flops(model)
+                self.eval_frame = update_row(self.eval_frame, uid,flops=flops, params = params,accuracy=rounded_accuracy)
+                bt.logging.info(f"Params: {params} RoundedACC: {rounded_accuracy} MFlops: {flops}")
                 continue
 
             # print(self.eval_frame)
             # model = torch.load(model_with_hash.pt_model)
             model = load_model(model_with_hash.pt_model)
-            acc = round(trainer.test(model),1)
+            acc = math.floor(trainer.test(model))
             # analysis = ModelAnalysis(model) ToDo: This has issue with torch script
             params = sum(param.numel() for param in model.parameters())
-            self.eval_frame = update_row(self.eval_frame, uid, accuracy = acc,params = params, evaluate = True)
+            params = round(params, -3)
+            flops = calc_flops(model)
+            self.eval_frame = update_row(self.eval_frame, uid,flops=flops, accuracy = acc,params = params, evaluate = True)
             bt.logging.info(f"Eval Acc: {acc}, Eval Params: {params}") 
             torch.cuda.empty_cache()
 
@@ -371,13 +488,14 @@ async def forward(self):
 
 
     
-        
-        rewarded_uids = self.eval_frame[self.eval_frame['reward'] == True]['uid'].tolist()
-        num_rewarded = len(rewarded_uids)
-        if num_rewarded > 0:
-            rewards = [1.0 / num_rewarded] * num_rewarded
-        else:
-            rewards = []
+        rewarded_uids, rewards = calculate_exponential_rewards(self.eval_frame ) 
+        self.eval_frame = assign_rewards_to_eval_frame(self.eval_frame, rewarded_uids, rewards)
+        # rewarded_uids = self.eval_frame[self.eval_frame['reward'] == True]['uid'].tolist()
+        # num_rewarded = len(rewarded_uids)
+        # if num_rewarded > 0:
+        #     rewards = [1.0 / num_rewarded] * num_rewarded
+        # else:
+        #     rewards = []
         bt.logging.info(f"Rewarded_uids: {rewarded_uids}")
         bt.logging.info(f"Rewards: {rewards}")
         self.update_scores(torch.FloatTensor(rewards).to(self.device), rewarded_uids)
@@ -389,9 +507,10 @@ async def forward(self):
         bt.logging.info("**********************************")
         if has_columns_changed(self.eval_frame, copy_eval_frame):
             fig = plot_pareto_after(self.eval_frame , pareto_optimal_points_after)
+            fig_reward = plot_rewards(self.eval_frame)
             wandb_df = filter_columns(self.eval_frame)
             # bt.logging.info(wandb_df)
-            wandb_update(fig,self.wallet.hotkey.ss58_address,vali_config,wandb_df)
+            wandb_update(fig,fig_reward,self.wallet.hotkey.ss58_address,vali_config,wandb_df)
             # fig.show()
 
         wandb.finish()
