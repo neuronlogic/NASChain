@@ -125,6 +125,7 @@ class BaseValidatorNeuron(BaseNeuron):
             'params': pd.Series(dtype='float'),
             'flops': pd.Series(dtype='float'),
             'accuracy': pd.Series(dtype='float'),
+            'score': pd.Series(dtype='float'),
             'evaluate': pd.Series(dtype='bool'),
             'pareto': pd.Series(dtype='bool'),
             'reward': pd.Series(dtype='bool'),

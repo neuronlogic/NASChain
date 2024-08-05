@@ -1,8 +1,5 @@
 # The MIT License (MIT)
 # Copyright © 2023 Yuma Rao
-# Developer: Nima Aghli   
-# Copyright © 2023 Nima Aghli
-
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
 # documentation files (the “Software”), to deal in the Software without restriction, including without limitation
 # the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software,
@@ -202,18 +199,15 @@ def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None, 
 
 
 def filter_pareto_by_commit_date(df):
-    # Ensure commit_date is in datetime format
     df['commit_date'] = pd.to_datetime(df['commit_date'])
     pareto_df = df[df['pareto']]
-    
-    # Group by 'accuracy', 'params', and 'pareto' and filter within groups
-    for (accuracy, params, pareto), group in pareto_df.groupby(['accuracy', 'params', 'pareto']):
+    # Group by 'accuracy', 'params', and 'flops' and filter within groups
+    for (accuracy, params, flops), group in pareto_df.groupby(['accuracy', 'params', 'flops']):
         if len(group) > 1:
             # Find the row with the oldest commit_date
             oldest_row_index = group['commit_date'].idxmin()
-            
-            # Set 'pareto' to False for all other rows with the same accuracy, params, and pareto status
-            df.loc[(df['accuracy'] == accuracy) & (df['params'] == params) & (df['pareto'] == pareto) & (df.index != oldest_row_index), 'pareto'] = False
+            # Set 'pareto' to False for all other rows with the same accuracy, params, and flops
+            df.loc[(df['accuracy'] == accuracy) & (df['params'] == params) & (df['flops'] == flops) & (df.index != oldest_row_index), 'pareto'] = False
     
     return df
 
@@ -311,10 +305,8 @@ import numpy as np
 import pandas as pd
 
 def calculate_exponential_rewards(df):
-    # Filter to include only those models marked for reward
     rewarded_models = df[df['reward'] == True][['uid', 'accuracy', 'params', 'flops']]
-    
-    # Normalize each metric to a 0-1 range
+
     rewarded_models['norm_accuracy'] = (rewarded_models['accuracy'] - rewarded_models['accuracy'].min()) / (rewarded_models['accuracy'].max() - rewarded_models['accuracy'].min())
     rewarded_models['norm_params'] = (rewarded_models['params'] - rewarded_models['params'].min()) / (rewarded_models['params'].max() - rewarded_models['params'].min())
     rewarded_models['norm_flops'] = (rewarded_models['flops'] - rewarded_models['flops'].min()) / (rewarded_models['flops'].max() - rewarded_models['flops'].min())
@@ -322,18 +314,18 @@ def calculate_exponential_rewards(df):
     # By using negative coefficients for these values (-0.2), the formula decreases the combined score for models with high params and flops
     rewarded_models['combined_score'] = rewarded_models['norm_accuracy'] - 0.25 * rewarded_models['norm_params'] - 0.5 * rewarded_models['norm_flops']
 
-    # Apply np.log1p to the combined score for scaling
-    scaled_scores = np.log1p(rewarded_models['combined_score'] - rewarded_models['combined_score'].min())
+    # Apply np.exp to the combined score for scaling
+    exp_scores = np.exp(rewarded_models['combined_score'])
 
     # Normalize the scaled values so they sum to 1
-    total_scaled_score = scaled_scores.sum()
-    rewarded_models['reward'] = scaled_scores / total_scaled_score
+    total_exp_score = exp_scores.sum()
+    rewarded_models['reward'] = exp_scores / total_exp_score
 
-    # Prepare output lists
     rewarded_uids = rewarded_models['uid'].tolist()
     rewards = rewarded_models['reward'].tolist()
 
     return rewarded_uids, rewards
+
 
 
 def filter_columns(df):
@@ -429,6 +421,7 @@ async def forward(self):
                 'reward': False,
                 'vali_evaluated':False,
                 'hf_account': model_metadata.id.namespace + "/" + model_metadata.id.name, 
+                'score': 0.0,
                 
             }
             self.eval_frame = append_row(self.eval_frame, new_row)
