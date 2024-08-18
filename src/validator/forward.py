@@ -301,9 +301,6 @@ def assign_rewards_to_eval_frame(df, rewarded_uids, rewards):
     return df
 
 
-import numpy as np
-import pandas as pd
-
 def calculate_exponential_rewards(df):
     rewarded_models = df[df['reward'] == True][['uid', 'accuracy', 'params', 'flops']]
 
@@ -336,7 +333,11 @@ def filter_columns(df):
     new_df = df[columns].reset_index(drop=True)
     return new_df
 
+async def async_wandb_update(fig, hotkey, valiconfig, wandb_df):
+    await asyncio.to_thread(wandb_update, fig, hotkey, valiconfig, wandb_df)
+
 def wandb_update(plot, reward_plot, hotkey, valiconfig:ValidationConfig, wandb_df):
+    bt.logging.info(f"Wandb Update!")
     # Log the Plotly figure to wandb
     wandb.log({"plotly_plot": wandb.Plotly(plot)})
     wandb.log({"reward_plot": wandb.Plotly(reward_plot)})
@@ -510,10 +511,10 @@ async def forward(self):
             fig_reward = plot_rewards(self.eval_frame)
             wandb_df = filter_columns(self.eval_frame)
             # bt.logging.info(wandb_df)
-            wandb_update(fig,fig_reward,self.wallet.hotkey.ss58_address,vali_config,wandb_df)
+            wandb_task = asyncio.create_task(async_wandb_update(fig, self.wallet.hotkey.ss58_address, vali_config, wandb_df))
             # fig.show()
 
-        wandb.finish()
+        # wandb.finish()
 
         # torch.FloatTensor(rewards).to(self.device), uids, msgs
 
