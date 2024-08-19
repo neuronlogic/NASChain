@@ -140,7 +140,9 @@ def find_pareto(df, vali_config):
     pareto_optimal_uids = []
     for i, row_i in df.iterrows():
         if row_i['accuracy'] < vali_config.min_accuracy:
-            continue  
+            continue
+        if row_i['flops'] >= vali_config.max_flops:
+            continue    
         is_pareto = True
         for j, row_j in df.iterrows():
             if i != j:  # Don't compare the point with itself
@@ -492,7 +494,7 @@ async def forward(self):
             flops = calc_flops(model)
             macs = calc_flops_onnx(model)
             self.eval_frame = update_row(self.eval_frame, uid,flops=macs, accuracy = acc,params = params, evaluate = True)
-            bt.logging.info(f"Eval Acc: {acc}, Eval Params: {params}") 
+            bt.logging.info(f"Params: {params} RoundedACC: {rounded_accuracy} MACS: {macs}") 
             torch.cuda.empty_cache()
 
 
