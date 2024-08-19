@@ -15,7 +15,9 @@
 # DEALINGS IN THE SOFTWARE.
 
 import bittensor as bt
-
+import re
+import onnx_tool
+import torch.onnx
 from src.protocol import Dummy
 from src.validator.reward import get_rewards
 from src.utils.uids import get_random_uids
@@ -250,7 +252,8 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
             model_dir = df.loc[df['uid'] == uid, 'local_model_dir'].values[0]
             try:
                 model = load_model(model_dir)
-                trainer.__init__(epochs=vali_config.train_epochs)
+                # trainer.__init__(epochs=vali_config.train_epochs)
+                trainer = ValiTrainer(epochs=vali_config.train_epochs)
                 trainer.initialize_weights(model)
                 retrained_model = trainer.train(model)
                 new_accuracy = math.floor(trainer.test(retrained_model))
@@ -301,6 +304,7 @@ def assign_rewards_to_eval_frame(df, rewarded_uids, rewards):
     return df
 
 
+
 def calculate_exponential_rewards(df):
     rewarded_models = df[df['reward'] == True][['uid', 'accuracy', 'params', 'flops']]
 
@@ -333,11 +337,11 @@ def filter_columns(df):
     new_df = df[columns].reset_index(drop=True)
     return new_df
 
-async def async_wandb_update(fig, hotkey, valiconfig, wandb_df):
-    await asyncio.to_thread(wandb_update, fig, hotkey, valiconfig, wandb_df)
+
+# async def async_wandb_update(fig, hotkey, valiconfig, wandb_df):
+#     await asyncio.to_thread(wandb_update, fig, hotkey, valiconfig, wandb_df)
 
 def wandb_update(plot, reward_plot, hotkey, valiconfig:ValidationConfig, wandb_df):
-    bt.logging.info(f"Wandb Update!")
     # Log the Plotly figure to wandb
     wandb.log({"plotly_plot": wandb.Plotly(plot)})
     wandb.log({"reward_plot": wandb.Plotly(reward_plot)})
@@ -353,6 +357,7 @@ def has_columns_changed(df1, df2):
         if not df1[column].equals(df2[column]):
             return True
     return False
+
 def calc_flops(model):
     dummy_input = torch.randn(1, 3, 32, 32).cuda()
     with profile(activities=[ProfilerActivity.CPU], record_shapes=True,with_flops=True) as prof:
@@ -361,9 +366,46 @@ def calc_flops(model):
     total_mflops = round(prof.key_averages().total_average().flops / 1e6)
     return total_mflops
 
+def round_to_nearest_significant(x, n=2):
+    if x == 0:
+        return 0
+    else:
+        magnitude = int(math.floor(math.log10(abs(x))))
+        factor = 10 ** magnitude
+        return round(x / factor, n-1) * factor
+
+def calc_flops_onnx(model):
+    fixed_dummy_input = torch.randn(1, 3, 32, 32).cuda()
+    onnx_path = "cache/tmp.onnx"
+    profile_path = "cache/profile.txt"
+    torch.onnx.export(model,
+                  fixed_dummy_input,
+                  onnx_path,
+                  export_params=True,
+                  opset_version=12,
+                  do_constant_folding=True,
+                  input_names=['input'],
+                  output_names=['output'],
+                  dynamic_axes=None)  # No dynamic axes for profiling
+    onnx_tool.model_profile(onnx_path,save_profile=profile_path)
+    with open(profile_path, 'r') as file:
+        profile_content = file.read()
+
+    # Regular expression to find the total Forward MACs
+    match = re.search(r'Total\s+_\s+([\d,]+)\s+100%', profile_content)
+
+    if match:
+        total_macs = match.group(1)
+        total_macs = int(total_macs.replace(',', ''))
+        total_macs = round_to_nearest_significant(total_macs,2)
+    return total_macs
+
+
 
 def get_wandb_api_key():
     return os.getenv('WANDB_API_KEY') 
+
+
 
 
 async def get_metadata(metadata_store, hotkey):
@@ -433,10 +475,11 @@ async def forward(self):
                 rounded_accuracy = int(math.floor(existing_accuracy))
                 model = load_model(model_with_hash.pt_model)
                 params = sum(param.numel() for param in model.parameters())
-                params = round(params, -3)
+                params = round_to_nearest_significant(params,1)
                 flops = calc_flops(model)
-                self.eval_frame = update_row(self.eval_frame, uid,flops=flops, params = params,accuracy=rounded_accuracy)
-                bt.logging.info(f"Params: {params} RoundedACC: {rounded_accuracy} MFlops: {flops}")
+                macs = calc_flops_onnx(model)
+                self.eval_frame = update_row(self.eval_frame, uid,flops=macs, params = params,accuracy=rounded_accuracy)
+                bt.logging.info(f"Params: {params} RoundedACC: {rounded_accuracy} MACS: {macs}")
                 continue
 
             # print(self.eval_frame)
@@ -445,9 +488,10 @@ async def forward(self):
             acc = math.floor(trainer.test(model))
             # analysis = ModelAnalysis(model) ToDo: This has issue with torch script
             params = sum(param.numel() for param in model.parameters())
-            params = round(params, -3)
+            params = round_to_nearest_significant(params,1)
             flops = calc_flops(model)
-            self.eval_frame = update_row(self.eval_frame, uid,flops=flops, accuracy = acc,params = params, evaluate = True)
+            macs = calc_flops_onnx(model)
+            self.eval_frame = update_row(self.eval_frame, uid,flops=macs, accuracy = acc,params = params, evaluate = True)
             bt.logging.info(f"Eval Acc: {acc}, Eval Params: {params}") 
             torch.cuda.empty_cache()
 
@@ -511,10 +555,12 @@ async def forward(self):
             fig_reward = plot_rewards(self.eval_frame)
             wandb_df = filter_columns(self.eval_frame)
             # bt.logging.info(wandb_df)
-            wandb_task = asyncio.create_task(async_wandb_update(fig, self.wallet.hotkey.ss58_address, vali_config, wandb_df))
+            # wandb_task = asyncio.create_task(async_wandb_update(fig, self.wallet.hotkey.ss58_address, vali_config, wandb_df))
+            # await asyncio.wait([wandb_task], timeout=30)
+            wandb_update(fig,fig_reward,self.wallet.hotkey.ss58_address,vali_config,wandb_df)
             # fig.show()
 
-        # wandb.finish()
+        wandb.finish()
 
         # torch.FloatTensor(rewards).to(self.device), uids, msgs
 
