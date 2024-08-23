@@ -179,7 +179,7 @@ def append_row(df, row_data):
     return df
 
 
-def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None, flops =None):
+def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None, flops =None, block=None):
     # Check if the uid exists in the DataFrame
     existing_row_index = df.index[df['uid'] == uid].tolist()
 
@@ -196,6 +196,8 @@ def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None, 
             df.at[index, 'evaluate'] = evaluate
         if pareto is not None:
             df.at[index, 'pareto'] = pareto
+        if block is not None:
+            df.at[index, 'block'] = block
     else:
         raise ValueError(f"UID {uid} does not exist in the DataFrame")
 
@@ -212,6 +214,18 @@ def filter_pareto_by_commit_date(df):
             oldest_row_index = group['commit_date'].idxmin()
             # Set 'pareto' to False for all other rows with the same accuracy, params, and flops
             df.loc[(df['accuracy'] == accuracy) & (df['params'] == params) & (df['flops'] == flops) & (df.index != oldest_row_index), 'pareto'] = False
+    
+    return df
+
+def filter_pareto_by_lowest_block(df):
+    pareto_df = df[df['pareto']]
+    # Group by 'accuracy', 'params', and 'flops' and filter within groups
+    for (accuracy, params, flops), group in pareto_df.groupby(['accuracy', 'params', 'flops']):
+        if len(group) > 1:
+            # Find the row with the lowest block number
+            lowest_block_row_index = group['block'].idxmin()
+            # Set 'pareto' to False for all other rows with the same accuracy, params, and flops
+            df.loc[(df['accuracy'] == accuracy) & (df['params'] == params) & (df['flops'] == flops) & (df.index != lowest_block_row_index), 'pareto'] = False
     
     return df
 
@@ -288,7 +302,7 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
                 # bt.logging.error(traceback.format_exc())
 
     # First filter those have same params and acc by commit date then set rewards 
-    df = filter_pareto_by_commit_date(df)
+    df = filter_pareto_by_lowest_block(df)
     final_pareto_indices = df[df['pareto']].index
     df.loc[final_pareto_indices, 'reward'] = True
 
@@ -334,7 +348,7 @@ def calculate_exponential_rewards(df):
 def filter_columns(df):
     # df['commit_date'] = df['commit_date'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if isinstance(x, pd.Timestamp) else x)
     
-    columns = ['uid', 'params','flops', 'accuracy', 'pareto', 'reward', 'hf_account','commit','eval_date','score']
+    columns = ['uid', 'params','flops', 'accuracy', 'pareto', 'reward', 'hf_account','commit','eval_date','score','block']
     # Create a new DataFrame with only the specified columns and reset the index
     new_df = df[columns].reset_index(drop=True)
     return new_df
@@ -447,7 +461,7 @@ async def forward(self):
                 raise ValueError(f"No metadata is avaiable in chain for miner:{uid}")
             model_with_hash, commit_date = await hg_model_store.download_model(model_metadata.id, local_path='cache', model_size_limit= vali_config.max_download_file_size)
             # bt.logging.info(f"hash_in_metadata: {model_metadata.id.hash}, {model_with_hash.id.hash}, {model_with_hash.pt_model},{model_with_hash.id.commit}")
-            bt.logging.info(f"HF account: {model_metadata.id.namespace}/{model_metadata.id.name}, commitdate:{commit_date}")
+            bt.logging.info(f"HF account: {model_metadata.id.namespace}/{model_metadata.id.name}, commitdate:{commit_date}'block:'{model_metadata.block}")
             if model_metadata.id.hash != model_with_hash.id.hash:
                 # raise ValueError(f"Hash mismatch: metadata hash {model_metadata.id.hash} != downloaded model hash {model_with_hash.id.hash}")
                 raise ValueError(f"Hash mismatch: metadata hash {model_metadata.id.hash[-8:]} != downloaded model hash {model_with_hash.id.hash[-8:]}")
@@ -460,6 +474,7 @@ async def forward(self):
                 'eval_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'params': float('inf'),
                 'flops': float('inf'),
+                'block': np.iinfo(np.int32).max,
                 'accuracy': 0.0,
                 'evaluate': False,
                 'pareto': False,
@@ -478,9 +493,9 @@ async def forward(self):
                 model = load_model(model_with_hash.pt_model)
                 params = sum(param.numel() for param in model.parameters())
                 params = round_to_nearest_significant(params,1)
-                flops = calc_flops(model)
+                # flops = calc_flops(model)
                 macs = calc_flops_onnx(model)
-                self.eval_frame = update_row(self.eval_frame, uid,flops=macs, params = params,accuracy=rounded_accuracy)
+                self.eval_frame = update_row(self.eval_frame, uid,flops=macs, params = params,accuracy=rounded_accuracy, block = int(model_metadata.block))
                 bt.logging.info(f"Params: {params} RoundedACC: {rounded_accuracy} MACS: {macs}")
                 continue
 
@@ -491,10 +506,10 @@ async def forward(self):
             # analysis = ModelAnalysis(model) ToDo: This has issue with torch script
             params = sum(param.numel() for param in model.parameters())
             params = round_to_nearest_significant(params,1)
-            flops = calc_flops(model)
+            # flops = calc_flops(model)
             macs = calc_flops_onnx(model)
-            self.eval_frame = update_row(self.eval_frame, uid,flops=macs, accuracy = acc,params = params, evaluate = True)
-            bt.logging.info(f"Params: {params} RoundedACC: {rounded_accuracy} MACS: {macs}") 
+            self.eval_frame = update_row(self.eval_frame, uid,flops=macs, accuracy = acc,params = params, evaluate = True,block = int(model_metadata.block))
+            bt.logging.info(f"Params: {params} MACS: {macs}") 
             torch.cuda.empty_cache()
 
 

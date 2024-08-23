@@ -48,7 +48,6 @@ class ChainModelMetadataStore(ModelMetadataStore):
         )
 
         metadata = utils.run_in_subprocess(partial, 60)
-
         if not metadata:
             return None
 

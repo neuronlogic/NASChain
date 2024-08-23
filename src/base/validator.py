@@ -131,6 +131,7 @@ class BaseValidatorNeuron(BaseNeuron):
             'reward': pd.Series(dtype='bool'),
             'vali_evaluated': pd.Series(dtype='bool'),
             'hf_account': pd.Series(dtype='object'),
+            'block':  pd.Series(dtype='int'),
         }
         df = pd.DataFrame(columns)
         return df
