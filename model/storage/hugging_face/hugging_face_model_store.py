@@ -108,7 +108,7 @@ class HuggingFaceModelStore(RemoteModelStore):
         # Ensure the cache directory exists
         os.makedirs(cache_dir, exist_ok=True)
 
-        local_model_path = hf_hub_download(repo_id=repo_id, filename='model.pt',cache_dir=cache_dir)
+        local_model_path = hf_hub_download(repo_id=repo_id, revision=model_id.commit, filename='model.pt',cache_dir=cache_dir)
 
         
 
