@@ -2,7 +2,7 @@ numpy==1.23.5
 pymoo==0.3.0
 torch==2.2.0
 torchvision==0.17.0
-bittensor==6.9.3
+bittensor==6.9.4
 pandas==2.2.1
 pynvml==11.5.0
 huggingface-hub==0.23.2
