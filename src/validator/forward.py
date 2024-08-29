@@ -296,7 +296,7 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
                 bt.logging.error(f"validate_pareto error: {e}")
                 # cant validate the model and remove accuracy
                 df.loc[df['uid'] == uid, 'accuracy'] = 0
-                df.loc[df['uid'] == uid, 'vali_evaluated'] = True
+                df.loc[df['uid'] == uid, 'vali_evaluated'] = False
                 df.loc[df['uid'] == uid, 'pareto'] = False
 
                 # bt.logging.error(traceback.format_exc())
