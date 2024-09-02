@@ -33,7 +33,7 @@ import requests
 import datetime as dt
 from model.data import Model, ModelId
 from model.storage.chain.chain_model_metadata_store import ChainModelMetadataStore
-from model.storage.hugging_face.hugging_face_model_store import HuggingFaceModelStore
+from model.storage.hugging_face.hugging_face_model_store import HuggingFaceMinerModelStore
 from model.storage.remote_model_store import RemoteModelStore
 from model.dummy_trainer import DummyTrainer
 from model.model_analysis import ModelAnalysis
@@ -125,12 +125,12 @@ class BaseMinerNeuron(BaseNeuron):
         try:
             vali_config = ValidationConfig()
             metadata_store = ChainModelMetadataStore(self.subtensor, self.wallet, self.config.netuid)
-            remote_model_store = HuggingFaceModelStore()
+            remote_model_store = HuggingFaceMinerModelStore()
             upload_dir = ""
             # namespace, name = utils.validate_hf_repo_id(self.config.hf_repo_id)
             # bt.logging.info(f"Hugface namespace and name : {namespace},{name}")
-            model_id = ModelId(namespace=self.config.hf_repo_id, name='naschain')
-            HuggingFaceModelStore.assert_access_token_exists()
+            model_id = ModelId(namespace=self.config.hf_repo_id, name='naschain_5')
+            HuggingFaceMinerModelStore.assert_access_token_exists()
             # Replace below code with you NAS algo to generate optmial model for you or give a path to model from args
             if self.config.model.dir is None:
                 bt.logging.info("Training Model!")
@@ -176,7 +176,7 @@ class BaseMinerNeuron(BaseNeuron):
             model_id = await remote_model_store.upload_model(Model(id=model_id, pt_model=upload_dir))
             bt.logging.success(f"Uploaded model to hugging face. {model_id} , {upload_dir}")
 
-        
+
             await metadata_store.store_model_metadata(
                 self.wallet.hotkey.ss58_address, model_id)
 
@@ -196,6 +196,8 @@ class BaseMinerNeuron(BaseNeuron):
             #         f"Failed to read back model metadata from the chain. Expected: {model_id}, got: {model_metadata}"
             #     )
 
+            await asyncio.sleep(120)
+            await remote_model_store.set_repo_public(Model(id=model_id, pt_model=upload_dir))
             bt.logging.success("Committed model to the chain.")
 
             

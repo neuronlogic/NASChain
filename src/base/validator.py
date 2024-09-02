@@ -71,7 +71,7 @@ class BaseValidatorNeuron(BaseNeuron):
 
         # Init sync with the network. Updates the metagraph.
         self.sync()
-        self.resync_metagraph()
+        # self.resync_metagraph()
 
         # Serve axon to enable external connections.
         # if not self.config.neuron.axon_off:
@@ -90,6 +90,7 @@ class BaseValidatorNeuron(BaseNeuron):
         self.state_dir = 'state'
         self.state_file = 'state.csv'
         self.eval_frame = self.check_and_load_state(self.state_dir, self.state_file)
+        self.archive = bt.subtensor(network="archive")
 
 
 
@@ -122,8 +123,8 @@ class BaseValidatorNeuron(BaseNeuron):
             'commit': pd.Series(dtype='object'),
             'commit_date': pd.Series(dtype='datetime64[ns]'),
             'eval_date': pd.Series(dtype='object'),
-            'params': pd.Series(dtype='float'),
-            'flops': pd.Series(dtype='float'),
+            'params': pd.Series(dtype='Int64'),
+            'flops': pd.Series(dtype='Int64'),
             'accuracy': pd.Series(dtype='float'),
             'score': pd.Series(dtype='float'),
             'evaluate': pd.Series(dtype='bool'),
@@ -131,7 +132,8 @@ class BaseValidatorNeuron(BaseNeuron):
             'reward': pd.Series(dtype='bool'),
             'vali_evaluated': pd.Series(dtype='bool'),
             'hf_account': pd.Series(dtype='object'),
-            'block':  pd.Series(dtype='int'),
+            'block':  pd.Series(dtype='Int64'),
+            'ext_idx':  pd.Series(dtype='int'),
         }
         df = pd.DataFrame(columns)
         return df

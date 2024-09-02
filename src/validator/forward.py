@@ -40,6 +40,7 @@ import os
 from torch.profiler import profile, record_function, ProfilerActivity
 import math
 import numpy as np
+from requests.exceptions import ReadTimeout
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
 def plot_pareto_after(df, pareto_optimal_points_after):
@@ -179,7 +180,7 @@ def append_row(df, row_data):
     return df
 
 
-def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None, flops =None, block=None):
+def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None, flops =None, block=None, ext_idx= None):
     # Check if the uid exists in the DataFrame
     existing_row_index = df.index[df['uid'] == uid].tolist()
 
@@ -198,6 +199,8 @@ def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None, 
             df.at[index, 'pareto'] = pareto
         if block is not None:
             df.at[index, 'block'] = block
+        if ext_idx is not None:
+            df.at[index, 'ext_idx'] = ext_idx
     else:
         raise ValueError(f"UID {uid} does not exist in the DataFrame")
 
@@ -221,12 +224,29 @@ def filter_pareto_by_lowest_block(df):
     pareto_df = df[df['pareto']]
     # Group by 'accuracy', 'params', and 'flops' and filter within groups
     for (accuracy, params, flops), group in pareto_df.groupby(['accuracy', 'params', 'flops']):
+        bt.logging.info(f"Processing group with accuracy: {accuracy}, params: {params}, flops: {flops}")
+        
         if len(group) > 1:
-            # Find the row with the lowest block number
-            lowest_block_row_index = group['block'].idxmin()
-            # Set 'pareto' to False for all other rows with the same accuracy, params, and flops
-            df.loc[(df['accuracy'] == accuracy) & (df['params'] == params) & (df['flops'] == flops) & (df.index != lowest_block_row_index), 'pareto'] = False
+            # First, find the row(s) with the lowest block number
+            min_block = group['block'].min()
+            min_block_group = group[group['block'] == min_block]
+            bt.logging.info(f"Group has multiple rows. Minimum block number: {min_block}, number of rows with this block: {len(min_block_group)}")
+
+            if len(min_block_group) > 1:
+                # If there are multiple rows with the same lowest block, use ext_idx to decide
+                lowest_ext_idx_row_index = min_block_group['ext_idx'].idxmin()
+                bt.logging.info(f"Multiple rows with the same block. Using ext_idx to decide. Lowest ext_idx: {min_block_group.loc[lowest_ext_idx_row_index, 'ext_idx']} at index: {lowest_ext_idx_row_index}")
+
+                # Set 'pareto' to False for all other rows with the same accuracy, params, and flops
+                df.loc[(df['accuracy'] == accuracy) & (df['params'] == params) & (df['flops'] == flops) & (df.index != lowest_ext_idx_row_index), 'pareto'] = False
+                bt.logging.info(f"Marked non-Pareto for group with accuracy: {accuracy}, params: {params}, flops: {flops} based on ext_idx")
+            else:
+                # If only one row has the lowest block, mark others as not Pareto
+                bt.logging.info(f"Only one row has the minimum block number. Marking others as non-Pareto")
+                df.loc[(df['accuracy'] == accuracy) & (df['params'] == params) & (df['flops'] == flops) & (df.index != min_block_group.index[0]), 'pareto'] = False
+                bt.logging.info(f"Marked non-Pareto for group with accuracy: {accuracy}, params: {params}, flops: {flops} based on block number")
     
+    bt.logging.info("Finished processing all groups.")
     return df
 
 
@@ -359,7 +379,7 @@ def filter_columns(df):
 
 def wandb_update(plot, reward_plot, hotkey, valiconfig:ValidationConfig, wandb_df):
     # Log the Plotly figure to wandb
-    wandb.log({"plotly_plot": wandb.Plotly(plot)})
+    # wandb.log({"plotly_plot": wandb.Plotly(plot)})
     wandb.log({"reward_plot": wandb.Plotly(reward_plot)})
     # Convert commit_date to string format only if it's a datetime object
     # wandb_df['commit_date'] = wandb_df['commit_date'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if isinstance(x, pd.Timestamp) else x)
@@ -390,6 +410,26 @@ def round_to_nearest_significant(x, n=2):
         factor = 10 ** magnitude
         return round(x / factor, n-1) * factor
 
+def round_flops_to_nearest_significant(flops):
+    if flops == 0:
+        return 0
+    else:
+        # Determine the number of digits in the integer part of the FLOPs value
+        num_digits = len(str(int(abs(flops))))
+
+        # Decide whether to round to 1 or 2 significant digits
+        if num_digits <= 7:
+            n = 1
+        else:
+            n = 2
+
+        # Calculate the magnitude and factor for rounding
+        magnitude = int(math.floor(math.log10(abs(flops))))
+        factor = 10 ** magnitude
+
+        return round(flops / factor, n-1) * factor
+
+
 def calc_flops_onnx(model):
     fixed_dummy_input = torch.randn(1, 3, 32, 32).cuda()
     onnx_path = "cache/tmp.onnx"
@@ -413,7 +453,7 @@ def calc_flops_onnx(model):
     if match:
         total_macs = match.group(1)
         total_macs = int(total_macs.replace(',', ''))
-        total_macs = round_to_nearest_significant(total_macs,2)
+        total_macs = round_flops_to_nearest_significant(total_macs)
     return total_macs
 
 
@@ -421,6 +461,64 @@ def calc_flops_onnx(model):
 def get_wandb_api_key():
     return os.getenv('WANDB_API_KEY') 
 
+
+def get_index_in_extrinsics(block_data, hotkey):
+    if not block_data:
+        return None
+
+    # Check each extrinsic in the block for the set_commitment by the provided hotkey.
+    # Hotkeys can only set_commitment once every 20 minutes so just take the first we see.
+    for idx, extrinsic in enumerate(block_data["extrinsics"]):
+        # Check function name first, otherwise it may not have an address.
+        if (
+            extrinsic["call"]["call_function"]["name"] == "set_commitment"
+            and extrinsic["address"] == hotkey
+        ):
+            return idx
+
+    # This should never happen since we already confirmed there was metadata for this block.
+    bt.logging.trace(
+        f"Did not find any set_commitment for block {block} by hotkey {hotkey}"
+    )
+    return None
+
+
+async def fetch_block_data(self, model_metadata):
+    block_number = int(model_metadata.block)
+    bt.logging.info(f"Attempting to fetch block: {block_number}")
+
+    latest_block = self.archive.substrate.get_chain_head()
+    bt.logging.info(f"Latest block on the node: {latest_block}")
+
+    attempts = 3
+    block_data = None
+
+    for attempt in range(attempts):
+        bt.logging.info(f"Fetch attempt {attempt + 1} for block: {block_number}")
+
+        # Try fetching the block (synchronously)
+        block_data = self.archive.substrate.get_block(block_number=block_number)
+
+        if block_data:
+            break  # Exit loop if block data is successfully retrieved
+
+        bt.logging.info(f"Block {block_number} not found. Trying to fetch block hash...")
+        block_hash = self.archive.substrate.get_block_hash(block_number)
+        bt.logging.info(f"Block hash for block {block_number}: {block_hash}")
+
+        if block_hash:
+            block_data = self.archive.substrate.get_block(block_hash=block_hash)
+            bt.logging.info(f"Block data retrieved using block hash: {block_data}")
+
+            if block_data:
+                break  # Exit loop if block data is successfully retrieved
+        else:
+            bt.logging.info("Block hash could not be retrieved.")
+
+    if not block_data:
+        raise ValueError(f"No block is available in chain for block: {block_number}")
+
+    return block_data
 
 
 
@@ -459,6 +557,10 @@ async def forward(self):
             model_metadata =  await metadata_store.retrieve_model_metadata(hotkey)
             if model_metadata is None:
                 raise ValueError(f"No metadata is avaiable in chain for miner:{uid}")
+            block_data = await fetch_block_data(self, model_metadata)
+            ext_idx = get_index_in_extrinsics(block_data,hotkey)
+            bt.logging.info(f"ext_idx: {ext_idx}")
+
             model_with_hash, commit_date = await hg_model_store.download_model(model_metadata.id, local_path='cache', model_size_limit= vali_config.max_download_file_size)
             # bt.logging.info(f"hash_in_metadata: {model_metadata.id.hash}, {model_with_hash.id.hash}, {model_with_hash.pt_model},{model_with_hash.id.commit}")
             bt.logging.info(f"HF account: {model_metadata.id.namespace}/{model_metadata.id.name}, commitdate:{commit_date}'block:'{model_metadata.block}")
@@ -472,17 +574,17 @@ async def forward(self):
                 'commit_date': commit_date,
                 'commit': model_with_hash.id.commit,
                 'eval_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                'params': float('inf'),
-                'flops': float('inf'),
-                'block': np.iinfo(np.int32).max,
+                'params': np.iinfo(np.int32).max,  # Use np.iinfo() for integer types
+                'flops': np.iinfo(np.int32).max,   # Use np.iinfo() for integer types
+                'block': pd.NA,
                 'accuracy': 0.0,
                 'evaluate': False,
                 'pareto': False,
                 'reward': False,
-                'vali_evaluated':False,
-                'hf_account': model_metadata.id.namespace + "/" + model_metadata.id.name, 
+                'vali_evaluated': False,
+                'hf_account': model_metadata.id.namespace + "/" + model_metadata.id.name,
                 'score': 0.0,
-                
+                'ext_idx': 0
             }
             self.eval_frame = append_row(self.eval_frame, new_row)
             # print(self.eval_frame)
@@ -495,7 +597,7 @@ async def forward(self):
                 params = round_to_nearest_significant(params,1)
                 # flops = calc_flops(model)
                 macs = calc_flops_onnx(model)
-                self.eval_frame = update_row(self.eval_frame, uid,flops=macs, params = params,accuracy=rounded_accuracy, block = int(model_metadata.block))
+                self.eval_frame = update_row(self.eval_frame, uid,flops=macs, params = params,accuracy=rounded_accuracy, block = int(model_metadata.block), ext_idx= ext_idx)
                 bt.logging.info(f"Params: {params} RoundedACC: {rounded_accuracy} MACS: {macs}")
                 continue
 
@@ -508,7 +610,7 @@ async def forward(self):
             params = round_to_nearest_significant(params,1)
             # flops = calc_flops(model)
             macs = calc_flops_onnx(model)
-            self.eval_frame = update_row(self.eval_frame, uid,flops=macs, accuracy = acc,params = params, evaluate = True,block = int(model_metadata.block))
+            self.eval_frame = update_row(self.eval_frame, uid,flops=macs, accuracy = acc,params = params, evaluate = True,block = int(model_metadata.block), ext_idx= ext_idx)
             bt.logging.info(f"Params: {params} MACS: {macs}") 
             torch.cuda.empty_cache()
 
@@ -524,12 +626,21 @@ async def forward(self):
             # bt.logging.info(f"acc_after_retrain: {acc}")
             # self.eval_frame = update_row(self.eval_frame, uid, accuracy = acc)
             # self.save_validator_state()
+        except ReadTimeout as e:
+            bt.logging.error(f"ReadTimeout on uid {uid}: {e}")
+            bt.logging.error(traceback.format_exc())
+        
         except Exception as e:
-            bt.logging.error(f"Evaluation Error on uid {uid} : {e}")
-            # bt.logging.error(traceback.format_exc())
-            if uid in self.eval_frame['uid'].values:
-                bt.logging.warning(f"Removing UID: {uid}")
-                self.eval_frame = self.eval_frame[self.eval_frame['uid'] != uid]
+            error_message = str(e)
+            if "ReadTimeout" in error_message:
+                bt.logging.error(f"Evaluation Error on uid {uid} : {e}")
+
+            else:
+                bt.logging.error(f"Evaluation Error on uid {uid} : {e}")
+                # bt.logging.error(traceback.format_exc())
+                if uid in self.eval_frame['uid'].values:
+                    bt.logging.warning(f"Removing UID: {uid}")
+                    self.eval_frame = self.eval_frame[self.eval_frame['uid'] != uid]
     try:       
         # Calculate Pareto optimal indices
         # params = self.eval_frame['params'].tolist()
