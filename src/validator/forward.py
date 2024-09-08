@@ -233,13 +233,19 @@ def filter_pareto_by_lowest_block(df):
             bt.logging.info(f"Group has multiple rows. Minimum block number: {min_block}, number of rows with this block: {len(min_block_group)}")
 
             if len(min_block_group) > 1:
-                # If there are multiple rows with the same lowest block, use ext_idx to decide
-                lowest_ext_idx_row_index = min_block_group['ext_idx'].idxmin()
-                bt.logging.info(f"Multiple rows with the same block. Using ext_idx to decide. Lowest ext_idx: {min_block_group.loc[lowest_ext_idx_row_index, 'ext_idx']} at index: {lowest_ext_idx_row_index}")
+                # Check if multiple rows have the same lowest ext_idx
+                min_ext_idx = min_block_group['ext_idx'].min()
+                same_ext_idx_group = min_block_group[min_block_group['ext_idx'] == min_ext_idx]
 
-                # Set 'pareto' to False for all other rows with the same accuracy, params, and flops
-                df.loc[(df['accuracy'] == accuracy) & (df['params'] == params) & (df['flops'] == flops) & (df.index != lowest_ext_idx_row_index), 'pareto'] = False
-                bt.logging.info(f"Marked non-Pareto for group with accuracy: {accuracy}, params: {params}, flops: {flops} based on ext_idx")
+                if len(same_ext_idx_group) > 1:
+                    bt.logging.info(f"Multiple rows with the same lowest block and ext_idx: {min_ext_idx}. Setting 'pareto' to False for all.")
+                    # Set 'pareto' to False for all rows in this group
+                    df.loc[(df['accuracy'] == accuracy) & (df['params'] == params) & (df['flops'] == flops), 'pareto'] = False
+                else:
+                    # If only one row has the lowest ext_idx, keep it as Pareto and mark others as non-Pareto
+                    lowest_ext_idx_row_index = min_block_group['ext_idx'].idxmin()
+                    bt.logging.info(f"Lowest ext_idx: {min_ext_idx} at index: {lowest_ext_idx_row_index}. Marking others as non-Pareto.")
+                    df.loc[(df['accuracy'] == accuracy) & (df['params'] == params) & (df['flops'] == flops) & (df.index != lowest_ext_idx_row_index), 'pareto'] = False
             else:
                 # If only one row has the lowest block, mark others as not Pareto
                 bt.logging.info(f"Only one row has the minimum block number. Marking others as non-Pareto")
@@ -557,9 +563,10 @@ async def forward(self):
             model_metadata =  await metadata_store.retrieve_model_metadata(hotkey)
             if model_metadata is None:
                 raise ValueError(f"No metadata is avaiable in chain for miner:{uid}")
-            block_data = await fetch_block_data(self, model_metadata)
-            ext_idx = get_index_in_extrinsics(block_data,hotkey)
-            bt.logging.info(f"ext_idx: {ext_idx}")
+            # block_data = await fetch_block_data(self, model_metadata)
+            # ext_idx = get_index_in_extrinsics(block_data,hotkey)
+            ext_idx = np.iinfo(np.int32).max
+            # bt.logging.info(f"ext_idx: {ext_idx}")
 
             model_with_hash, commit_date = await hg_model_store.download_model(model_metadata.id, local_path='cache', model_size_limit= vali_config.max_download_file_size)
             # bt.logging.info(f"hash_in_metadata: {model_metadata.id.hash}, {model_with_hash.id.hash}, {model_with_hash.pt_model},{model_with_hash.id.commit}")
@@ -584,7 +591,7 @@ async def forward(self):
                 'vali_evaluated': False,
                 'hf_account': model_metadata.id.namespace + "/" + model_metadata.id.name,
                 'score': 0.0,
-                'ext_idx': 0
+                'ext_idx': np.iinfo(np.int32).max,
             }
             self.eval_frame = append_row(self.eval_frame, new_row)
             # print(self.eval_frame)
@@ -629,18 +636,22 @@ async def forward(self):
         except ReadTimeout as e:
             bt.logging.error(f"ReadTimeout on uid {uid}: {e}")
             bt.logging.error(traceback.format_exc())
-        
         except Exception as e:
             error_message = str(e)
-            if "ReadTimeout" in error_message:
+            if "EOF occurred in violation of protocol" in error_message:
                 bt.logging.error(f"Evaluation Error on uid {uid} : {e}")
-
+                bt.logging.error(traceback.format_exc())
+            elif "ReadTimeout" in error_message:
+                bt.logging.error(f"Evaluation Error on uid {uid} : {e}")
+                bt.logging.error(traceback.format_exc())
             else:
                 bt.logging.error(f"Evaluation Error on uid {uid} : {e}")
                 # bt.logging.error(traceback.format_exc())
                 if uid in self.eval_frame['uid'].values:
                     bt.logging.warning(f"Removing UID: {uid}")
                     self.eval_frame = self.eval_frame[self.eval_frame['uid'] != uid]
+
+
     try:       
         # Calculate Pareto optimal indices
         # params = self.eval_frame['params'].tolist()
