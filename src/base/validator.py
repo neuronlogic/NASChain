@@ -90,7 +90,7 @@ class BaseValidatorNeuron(BaseNeuron):
         self.state_dir = 'state'
         self.state_file = 'state.csv'
         self.eval_frame = self.check_and_load_state(self.state_dir, self.state_file)
-        self.archive = bt.subtensor(network="archive")
+        self.archive = None #bt.subtensor(network="archive") we dont use this anymore will refactor the code later
 
 
 

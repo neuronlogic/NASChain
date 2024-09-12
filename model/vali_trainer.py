@@ -168,6 +168,20 @@ class ValiTrainer:
 
     def initialize_weights(self,model):
         self.set_seed(0)
+
+        state_dict = model.state_dict()
+    
+        for name, tensor in state_dict.items():
+            if len(tensor.shape) >= 2:  # Ensure the tensor has at least two dimensions
+                if 'weight' in name:
+                    nn.init.kaiming_uniform_(tensor, a=math.sqrt(5))
+            elif len(tensor.shape) == 1:  # Handle biases separately if they are one-dimensional
+                if 'bias' in name:
+                    nn.init.constant_(tensor, 0)
+                if 'weight' in name:
+                    nn.init.constant_(tensor, 1.0)
+
+
         for name, param in model.named_parameters():
             if param.dim() >= 2:  # Ensure the parameter has at least two dimensions
                 if 'weight' in name:
