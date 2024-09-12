@@ -168,9 +168,7 @@ class ValiTrainer:
 
     def initialize_weights(self,model):
         self.set_seed(0)
-
-        state_dict = model.state_dict()
-    
+            
         state_dict = model.state_dict()
         for name, tensor in model.state_dict().items():
             if len(tensor.shape) >= 2:  # Ensure the tensor has at least two dimensions
