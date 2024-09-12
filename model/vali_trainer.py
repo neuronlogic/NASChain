@@ -171,15 +171,21 @@ class ValiTrainer:
 
         state_dict = model.state_dict()
     
-        for name, tensor in state_dict.items():
+        state_dict = model.state_dict()
+        for name, tensor in model.state_dict().items():
             if len(tensor.shape) >= 2:  # Ensure the tensor has at least two dimensions
-                if 'weight' in name:
-                    nn.init.kaiming_uniform_(tensor, a=math.sqrt(5))
-            elif len(tensor.shape) == 1:  # Handle biases separately if they are one-dimensional
-                if 'bias' in name:
+                nn.init.kaiming_uniform_(tensor, a=math.sqrt(5))
+            elif len(tensor.shape) == 1:  # Handle biases and 1D tensors separately
+                if 'running_mean' in name:
                     nn.init.constant_(tensor, 0)
-                if 'weight' in name:
+                elif 'running_var' in name:
+                    nn.init.constant_(tensor, 1)
+                elif 'bias' in name:
+                    nn.init.constant_(tensor, 0)
+                elif 'weight' in name:
                     nn.init.constant_(tensor, 1.0)
+                else:
+                    nn.init.uniform_(tensor, -0.05, 0.05)
 
 
         for name, param in model.named_parameters():
