@@ -115,7 +115,7 @@ class ValiTrainer:
                 optimizer.zero_grad()
                 outputs = model(inputs)
                 if isinstance(outputs, tuple):
-                    outputs = outputs[0]  # Take the f
+                    outputs = outputs[0]  # Take the first element if the output is a tuple
                 loss = criterion(outputs, labels)
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), self.grad_clip)
@@ -131,7 +131,23 @@ class ValiTrainer:
                     running_loss = 0.0
                     correct = 0
                     total = 0
-            self.test(model)
+
+            # Test the model after each epoch
+            test_accuracy = self.test(model)
+
+            # Check for overfitting
+            if epoch <= 13 and test_accuracy >= 90:
+                raise Exception(f"Overfit detected: Epoch {epoch + 1}, Test Accuracy {test_accuracy:.2f}%")
+
+            if epoch <= 3 and test_accuracy >= 80:
+                raise Exception(f"Overfit detected: Epoch {epoch + 1}, Test Accuracy {test_accuracy:.2f}%")
+    
+            if epoch == 49:
+                train_accuracy = 100 * correct / total  # Calculate final training accuracy
+                if abs(train_accuracy - test_accuracy) > 5:
+                    raise Exception(f"Significant accuracy difference detected: Epoch {epoch + 1}, "
+                                    f"Train Accuracy {train_accuracy:.2f}%, Test Accuracy {test_accuracy:.2f}%")
+
             
 
         return model
@@ -169,21 +185,15 @@ class ValiTrainer:
     def initialize_weights(self,model):
         self.set_seed(0)
             
-        state_dict = model.state_dict()
-        for name, tensor in model.state_dict().items():
-            if len(tensor.shape) >= 2:  # Ensure the tensor has at least two dimensions
-                nn.init.kaiming_uniform_(tensor, a=math.sqrt(5))
-            elif len(tensor.shape) == 1:  # Handle biases and 1D tensors separately
-                if 'running_mean' in name:
-                    nn.init.constant_(tensor, 0)
-                elif 'running_var' in name:
-                    nn.init.constant_(tensor, 1)
-                elif 'bias' in name:
-                    nn.init.constant_(tensor, 0)
-                elif 'weight' in name:
-                    nn.init.constant_(tensor, 1.0)
-                else:
-                    nn.init.uniform_(tensor, -0.05, 0.05)
+        # state_dict = model.state_dict()
+        # for name, tensor in model.state_dict().items():
+        #     if len(tensor.shape) >= 2:  # Ensure the tensor has at least two dimensions
+        #         nn.init.kaiming_uniform_(tensor, a=math.sqrt(5))
+        #     elif len(tensor.shape) == 1:  # Handle biases and 1D tensors separately
+        #         if 'bias' in name:
+        #             nn.init.constant_(tensor, 0)
+        #         elif 'weight' in name:
+        #             nn.init.constant_(tensor, 1.0)
 
 
         for name, param in model.named_parameters():
@@ -195,4 +205,5 @@ class ValiTrainer:
                     nn.init.constant_(param.data, 0)
                 if 'weight' in name:
                     nn.init.constant_(param.data, 1.0) 
+                    # nn.init.uniform_(tensor, -0.05, 0.05)
         self.reset_model_weights(model)
