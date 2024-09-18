@@ -40,8 +40,75 @@ import os
 from torch.profiler import profile, record_function, ProfilerActivity
 import math
 import numpy as np
-from requests.exceptions import ReadTimeout
+from requests.exceptions import ReadTimeout  
+import gc
+
+
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+
+
+def validate_model_tensors(model):
+
+    input_tensor = torch.randn(1, 3, 32, 32).cuda()
+
+    # Forward pass
+    output = model(input_tensor)
+
+    # Backward pass to compute gradients
+    if isinstance(output, tuple):
+        output = output[0]  # Take the first 
+    output.sum().backward()
+
+    # Inspect the gradients of the model parameters and count tensors with size >= 2
+    named_param_tensors_with_grads = {}
+    for name, param in model.named_parameters():
+        if param.requires_grad and param.dim() >= 2:
+            named_param_tensors_with_grads[name] = param.size()
+
+    # Check for unexpected tensors in memory
+    gc_tensors_with_grads = []
+    for obj in gc.get_objects():
+        if isinstance(obj, torch.Tensor) and obj.grad is not None and obj.dim() >= 2:
+            gc_tensors_with_grads.append(obj)
+
+    # Forward and backward pass with gradient calculation
+    input_tensor = torch.randn(1, 3, 32, 32).cuda()
+    output = model(input_tensor)
+    if isinstance(output, tuple):
+        output = output[0]  # Take the first 
+    output.sum().backward()
+
+    # Step 1: Extract and count all tensors with size >= 2 from `state_dict`
+    state_dict_tensors_with_dims = {}
+    for name, tensor in model.state_dict().items():
+        if tensor.dim() >= 2:
+            state_dict_tensors_with_dims[name] = tensor.size()
+
+    # Step 2: Convert GC tensors to a set of sizes for comparison
+    gc_tensor_sizes = {tensor.size() for tensor in gc_tensors_with_grads}
+
+    # Step 3: Find Mismatches for tensors with size >= 2
+    mismatches = {}
+    for name, tensor_size in state_dict_tensors_with_dims.items():
+        if tensor_size not in gc_tensor_sizes:
+            mismatches[name] = tensor_size
+
+    # Output mismatches
+    if mismatches:
+        raise RuntimeError(f"Mismatches found: {mismatches}")
+
+    # Step 4: Check if the counts match
+    named_param_tensor_count = len(named_param_tensors_with_grads)
+    gc_tensor_count = len(gc_tensors_with_grads)
+    state_dict_tensor_count = len(state_dict_tensors_with_dims)
+
+    if named_param_tensor_count != gc_tensor_count or named_param_tensor_count != state_dict_tensor_count:
+        raise RuntimeError(f"Mismatch in tensor counts! "
+                           f"Named Parameters: {named_param_tensor_count}, "
+                           f"Tensors with Gradients: {gc_tensor_count}, "
+                           f"State Dict Tensors: {state_dict_tensor_count}")
+
+
 
 def plot_pareto_after(df, pareto_optimal_points_after):
     fig = go.Figure()
@@ -600,6 +667,7 @@ async def forward(self):
                 existing_accuracy = self.eval_frame.loc[self.eval_frame['uid'] == uid, 'accuracy'].values[0]
                 rounded_accuracy = int(math.floor(existing_accuracy))
                 model = load_model(model_with_hash.pt_model)
+                validate_model_tensors(model)
                 params = sum(param.numel() for param in model.parameters())
                 params = round_to_nearest_significant(params,1)
                 # flops = calc_flops(model)
@@ -611,6 +679,7 @@ async def forward(self):
             # print(self.eval_frame)
             # model = torch.load(model_with_hash.pt_model)
             model = load_model(model_with_hash.pt_model)
+            validate_model_tensors(model)
             acc = math.floor(trainer.test(model))
             # analysis = ModelAnalysis(model) ToDo: This has issue with torch script
             params = sum(param.numel() for param in model.parameters())
