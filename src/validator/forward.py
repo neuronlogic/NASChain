@@ -42,15 +42,17 @@ import math
 import numpy as np
 from requests.exceptions import ReadTimeout  
 import gc
-
+import onnx
 
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
+def validate_model_2(model):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
 
-def validate_model_tensors(model):
-
-    input_tensor = torch.randn(1, 3, 32, 32).cuda()
-
+    # Create input tensor
+    input_tensor = torch.randn(1, 3, 32, 32).to(device)
+    
     # Forward pass
     output = model(input_tensor)
 
@@ -59,54 +61,153 @@ def validate_model_tensors(model):
         output = output[0]  # Take the first 
     output.sum().backward()
 
+    # Force CUDA synchronization
+    if device.type == 'cuda':
+        torch.cuda.synchronize()
+
     # Inspect the gradients of the model parameters and count tensors with size >= 2
     named_param_tensors_with_grads = {}
     for name, param in model.named_parameters():
         if param.requires_grad and param.dim() >= 2:
             named_param_tensors_with_grads[name] = param.size()
 
-    # Check for unexpected tensors in memory
-    gc_tensors_with_grads = []
-    for obj in gc.get_objects():
-        if isinstance(obj, torch.Tensor) and obj.grad is not None and obj.dim() >= 2:
-            gc_tensors_with_grads.append(obj)
+    frozen_count = 0
+    grad_count = 0
 
-    # Forward and backward pass with gradient calculation
+    excluded_size = torch.Size([1, 3, 32, 32])  # Exclude this size from the frozen count
+
+    # Force garbage collection before iterating
+    gc.collect()
+
+    # Iterate through all objects in the garbage collector
+    for obj in gc.get_objects():
+        if isinstance(obj, torch.Tensor) and obj.dim() >= 2:
+            if obj.requires_grad:
+                if obj.grad is not None:
+                    print(f"---Detected Tensor with Gradient: {obj.size()}")
+                    grad_count += 1
+            else:
+                # Exclude the specific size from the frozen count
+                if obj.size() != excluded_size:
+                    print(f"---Detected Frozen Tensor (requires_grad=False): {obj.size()}")
+                    frozen_count += 1
+
+    # Only print if the number of frozen tensors is greater
+    if frozen_count > grad_count:
+        print(f"\n############ Mismatch: Frozen tensor count ({frozen_count}) is larger than gradient tensor count ({grad_count}).")
+    
+
+
+def validate_model_tensors(model):
+
     input_tensor = torch.randn(1, 3, 32, 32).cuda()
+    onnx_path = "tmp.onnx"
+    torch.onnx.export(
+        model,
+        input_tensor,
+        onnx_path,
+        export_params=True,
+        opset_version=12,
+        do_constant_folding=True,
+        input_names=['input'],
+        output_names=['output'],
+        dynamic_axes=None  
+    )
+
+    # Load the ONNX model
+    onnx_model = onnx.load(onnx_path)
+
+    # Collect tensors with dimension >= 2 from the ONNX model
+    onnx_tensors_with_dims = {}
+    for initializer in onnx_model.graph.initializer:
+        dims = tuple(initializer.dims)
+        if len(dims) >= 2:
+            # print(f"ONNX Tensor: {initializer.name}, Dimensions: {dims}")
+            onnx_tensors_with_dims[initializer.name] = dims
+
+    tensor_count_onnx = len(onnx_tensors_with_dims)
+
+    # Step 2: Forward and backward pass on the PyTorch model
+    # Forward pass
     output = model(input_tensor)
+
+    # Backward pass to compute gradients
     if isinstance(output, tuple):
-        output = output[0]  # Take the first 
+        output = output[0]  # Take the first element if output is a tuple
     output.sum().backward()
 
-    # Step 1: Extract and count all tensors with size >= 2 from `state_dict`
+    # Collect tensors from named parameters with requires_grad=True and dimension >= 2
+    named_param_tensors_with_grads = {}
+    for name, param in model.named_parameters():
+        if param.requires_grad and param.dim() >= 2:
+            named_param_tensors_with_grads[name] = tuple(param.size())
+
+    # Step 3: Collect tensors from garbage collector with gradients and dimension >= 2
+    gc_tensors_with_grads = []
+    for obj in gc.get_objects():
+        if (
+            isinstance(obj, torch.Tensor) and
+            obj.grad is not None and
+            obj.dim() >= 2
+        ):
+            # print(f"Detected Tensor with Gradient from GC: {obj.size()}")
+            gc_tensors_with_grads.append(obj)
+
+    # Step 4: Collect tensors from state_dict with dimension >= 2
     state_dict_tensors_with_dims = {}
     for name, tensor in model.state_dict().items():
         if tensor.dim() >= 2:
-            state_dict_tensors_with_dims[name] = tensor.size()
+            state_dict_tensors_with_dims[name] = tuple(tensor.size())
 
-    # Step 2: Convert GC tensors to a set of sizes for comparison
-    gc_tensor_sizes = {tensor.size() for tensor in gc_tensors_with_grads}
+    # Step 5: Convert collected tensors to sets of sizes for comparison
+    named_param_tensor_sizes = set(named_param_tensors_with_grads.values())
+    gc_tensor_sizes = {tuple(tensor.size()) for tensor in gc_tensors_with_grads}
+    state_dict_tensor_sizes = set(state_dict_tensors_with_dims.values())
+    onnx_tensor_sizes = set(onnx_tensors_with_dims.values())
 
-    # Step 3: Find Mismatches for tensors with size >= 2
-    mismatches = {}
-    for name, tensor_size in state_dict_tensors_with_dims.items():
-        if tensor_size not in gc_tensor_sizes:
-            mismatches[name] = tensor_size
+    # Step 6: Compare tensor counts
+    named_param_tensor_count = len(named_param_tensor_sizes)
+    gc_tensor_count = len(gc_tensor_sizes)
+    state_dict_tensor_count = len(state_dict_tensor_sizes)
+    onnx_tensor_count = len(onnx_tensor_sizes)
 
-    # Output mismatches
-    if mismatches:
-        raise RuntimeError(f"Mismatches found: {mismatches}")
+    if (
+        named_param_tensor_count != gc_tensor_count or
+        named_param_tensor_count != state_dict_tensor_count or
+        named_param_tensor_count != onnx_tensor_count
+    ):
+        raise RuntimeError(
+            f"Mismatch in tensor counts!\n"
+            f"Named Parameters: {named_param_tensor_count}\n"
+            f"Tensors with Gradients (GC): {gc_tensor_count}\n"
+            f"State Dict Tensors: {state_dict_tensor_count}\n"
+            f"ONNX Tensors: {onnx_tensor_count}"
+        )
 
-    # Step 4: Check if the counts match
-    named_param_tensor_count = len(named_param_tensors_with_grads)
-    gc_tensor_count = len(gc_tensors_with_grads)
-    state_dict_tensor_count = len(state_dict_tensors_with_dims)
+    # Step 7: Compare tensor sizes between ONNX and state_dict
+    missing_in_state_dict = onnx_tensor_sizes - state_dict_tensor_sizes
+    missing_in_onnx = state_dict_tensor_sizes - onnx_tensor_sizes
 
-    if named_param_tensor_count != gc_tensor_count or named_param_tensor_count != state_dict_tensor_count:
-        raise RuntimeError(f"Mismatch in tensor counts! "
-                           f"Named Parameters: {named_param_tensor_count}, "
-                           f"Tensors with Gradients: {gc_tensor_count}, "
-                           f"State Dict Tensors: {state_dict_tensor_count}")
+    if missing_in_state_dict or missing_in_onnx:
+        raise RuntimeError(
+            f"Mismatch in tensor sizes between ONNX and state_dict tensors.\n"
+            f"Missing in state_dict: {missing_in_state_dict}\n"
+            f"Missing in ONNX: {missing_in_onnx}"
+        )
+
+    # Step 8: Compare tensor sizes between named parameters and state_dict
+    missing_in_named_params = state_dict_tensor_sizes - named_param_tensor_sizes
+    if missing_in_named_params:
+        raise RuntimeError(
+            f"Tensors in state_dict not found in named parameters: {missing_in_named_params}"
+        )
+
+    # Step 9: Compare tensor sizes between GC tensors and named parameters
+    missing_in_gc = named_param_tensor_sizes - gc_tensor_sizes
+    if missing_in_gc:
+        raise RuntimeError(
+            f"Tensors in named parameters not found in GC tensors: {missing_in_gc}"
+        )
 
 
 
