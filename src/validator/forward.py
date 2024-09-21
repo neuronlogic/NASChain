@@ -117,6 +117,28 @@ def validate_model_tensors(model):
     # Load the ONNX model
     onnx_model = onnx.load(onnx_path)
 
+    for node in onnx_model.graph.node:
+        if node.op_type == 'Scatter':
+            print(f"Found Scatter node: {node.name}")
+            raise RuntimeError(
+            f"Found Scatter node: {node.name}"
+                )
+        if node.op_type == 'ScatterND':
+            print(f"Found ScatterND node: {node.name}")
+            raise RuntimeError(
+            f"Found ScatterND node: {node.name}"
+                )
+        if node.op_type == 'ScatterElements':
+            print(f"Found ScatterElements node: {node.name}")
+            raise RuntimeError(
+            f"Found ScatterElements node: {node.name}"
+                )
+        if node.op_type == 'ConstantOfShape':
+            print(f"ConstantOfShape node: {node.name}")
+            raise RuntimeError(
+            f"Found ConstantOfShape node: {node.name}"
+                )
+
     # Collect tensors with dimension >= 2 from the ONNX model
     onnx_tensors_with_dims = {}
     for initializer in onnx_model.graph.initializer:
