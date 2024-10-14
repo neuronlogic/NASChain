@@ -753,6 +753,7 @@ async def forward(self):
             model_metadata =  await metadata_store.retrieve_model_metadata(hotkey)
             if model_metadata is None:
                 raise ValueError(f"No metadata is avaiable in chain for miner:{uid}")
+            bt.logging.info(f"Model Metadatdata: Hash: {model_metadata.id.hash}, commit:{model_metadata.id.commit}, learning rate: {model_metadata.id.learning_rate}")
             # block_data = await fetch_block_data(self, model_metadata)
             # ext_idx = get_index_in_extrinsics(block_data,hotkey)
             ext_idx = np.iinfo(np.int32).max
