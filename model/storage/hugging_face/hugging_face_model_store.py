@@ -182,7 +182,7 @@ class HuggingFaceMinerModelStore(RemoteModelStore):
         commit_info = api.model_info(repo_id=repo_id, token=token)
         model_id_with_commit = ModelId(
             namespace=model.id.namespace,
-            # accuracy=model.id.accuracy,
+            learning_rate=model.id.learning_rate,
             name=model.id.name,
             hash=model.id.hash,
             commit=commit_info.sha,  # Get the latest commit sha
@@ -259,7 +259,7 @@ class HuggingFaceMinerModelStore(RemoteModelStore):
             name=model_id.name,
             commit=model_id.commit,
             hash=model_hash,
-            # accuracy=model_id.accuracy
+            learning_rate=model_id.learning_rate,
         )
 
         return Model(id=model_id_with_hash, pt_model=local_model_path), commit_date
