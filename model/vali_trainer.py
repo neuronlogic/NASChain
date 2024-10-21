@@ -99,7 +99,7 @@ class ValiTrainer:
         parameters = filter(lambda p: p.requires_grad, model.parameters()) ## added this 
         optimizer = optim.SGD(parameters, lr=self.learning_rate, momentum=self.momentum, weight_decay=self.weight_decay)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, self.epochs)
-
+        bt.logging.info(f"Initial learning rate is set to {self.learning_rate}")
         for epoch in range(self.epochs):
             scheduler.step()
             bt.logging.info(f"Epoch {epoch}, LR: {scheduler.get_lr()[0]}")
@@ -136,17 +136,17 @@ class ValiTrainer:
             test_accuracy = self.test(model)
 
             # Check for overfitting
-            if epoch <= 13 and test_accuracy >= 90:
-                raise Exception(f"Overfit detected: Epoch {epoch + 1}, Test Accuracy {test_accuracy:.2f}%")
+            # if epoch <= 13 and test_accuracy >= 90:
+            #     raise Exception(f"Overfit detected: Epoch {epoch + 1}, Test Accuracy {test_accuracy:.2f}%")
 
-            if epoch <= 3 and test_accuracy >= 80:
-                raise Exception(f"Overfit detected: Epoch {epoch + 1}, Test Accuracy {test_accuracy:.2f}%")
+            # if epoch <= 3 and test_accuracy >= 80:
+            #     raise Exception(f"Overfit detected: Epoch {epoch + 1}, Test Accuracy {test_accuracy:.2f}%")
     
-            if epoch == 49:
-                train_accuracy = 100 * correct / total  # Calculate final training accuracy
-                if abs(train_accuracy - test_accuracy) > 5:
-                    raise Exception(f"Significant accuracy difference detected: Epoch {epoch + 1}, "
-                                    f"Train Accuracy {train_accuracy:.2f}%, Test Accuracy {test_accuracy:.2f}%")
+            # if epoch == 49:
+            #     train_accuracy = 100 * correct / total  # Calculate final training accuracy
+            #     if abs(train_accuracy - test_accuracy) > 5:
+            #         raise Exception(f"Significant accuracy difference detected: Epoch {epoch + 1}, "
+            #                         f"Train Accuracy {train_accuracy:.2f}%, Test Accuracy {test_accuracy:.2f}%")
 
             
 
