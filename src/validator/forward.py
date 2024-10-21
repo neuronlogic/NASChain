@@ -370,7 +370,7 @@ def append_row(df, row_data):
     return df
 
 
-def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None, flops =None, block=None, ext_idx= None):
+def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None, flops =None, block=None, ext_idx= None, miner_lr = None):
     # Check if the uid exists in the DataFrame
     existing_row_index = df.index[df['uid'] == uid].tolist()
 
@@ -391,6 +391,8 @@ def update_row(df, uid, params=None, accuracy=None, evaluate=None, pareto=None, 
             df.at[index, 'block'] = block
         if ext_idx is not None:
             df.at[index, 'ext_idx'] = ext_idx
+        if miner_lr is not None:
+            df.at[index, 'lr'] = miner_lr
     else:
         raise ValueError(f"UID {uid} does not exist in the DataFrame")
 
@@ -485,7 +487,8 @@ def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
             try:
                 model = load_model(model_dir)
                 # trainer.__init__(epochs=vali_config.train_epochs)
-                trainer = ValiTrainer(epochs=vali_config.train_epochs)
+                train_lr = df[df['uid'] == uid]['lr'].iloc[0]
+                trainer = ValiTrainer(epochs=vali_config.train_epochs, learning_rate=train_lr)
                 trainer.initialize_weights(model)
                 retrained_model = trainer.train(model)
                 new_accuracy = math.floor(trainer.test(retrained_model))
@@ -746,6 +749,7 @@ async def forward(self):
     except Exception as e:
         bt.logging.error(f"Wandb init error: {e}")    
     copy_eval_frame = self.eval_frame.copy()
+    miner_lr = vali_config.learning_rate
     for uid in range(self.metagraph.n.item()):
         hotkey = self.metagraph.hotkeys[uid]
         bt.logging.info(f"Reading uid: {uid} {hotkey} ---------")
@@ -753,6 +757,14 @@ async def forward(self):
             model_metadata =  await metadata_store.retrieve_model_metadata(hotkey)
             if model_metadata is None:
                 raise ValueError(f"No metadata is avaiable in chain for miner:{uid}")
+            bt.logging.info(f"Model Metadatdata: Hash: {model_metadata.id.hash}, commit:{model_metadata.id.commit}, learning rate: {model_metadata.id.learning_rate}")
+            if model_metadata.id.learning_rate is None:
+                miner_lr = vali_config.learning_rate
+                bt.logging.info(f"No learning rate was submitted. Using default learning rate.")
+            else:
+                bt.logging.info(f"Stting learning rate to: {model_metadata.id.learning_rate}")
+                miner_lr = float(model_metadata.id.learning_rate)
+
             # block_data = await fetch_block_data(self, model_metadata)
             # ext_idx = get_index_in_extrinsics(block_data,hotkey)
             ext_idx = np.iinfo(np.int32).max
@@ -782,6 +794,7 @@ async def forward(self):
                 'hf_account': model_metadata.id.namespace + "/" + model_metadata.id.name,
                 'score': 0.0,
                 'ext_idx': np.iinfo(np.int32).max,
+                'lr': miner_lr
             }
             self.eval_frame = append_row(self.eval_frame, new_row)
             # print(self.eval_frame)
@@ -795,7 +808,7 @@ async def forward(self):
                 params = round_to_nearest_significant(params,1)
                 # flops = calc_flops(model)
                 macs = calc_flops_onnx(model)
-                self.eval_frame = update_row(self.eval_frame, uid,flops=macs, params = params,accuracy=rounded_accuracy, block = int(model_metadata.block), ext_idx= ext_idx)
+                self.eval_frame = update_row(self.eval_frame, uid,flops=macs, params = params,accuracy=rounded_accuracy, block = int(model_metadata.block), ext_idx= ext_idx, miner_lr = miner_lr)
                 bt.logging.info(f"Params: {params} RoundedACC: {rounded_accuracy} MACS: {macs}")
                 continue
 
@@ -809,7 +822,7 @@ async def forward(self):
             params = round_to_nearest_significant(params,1)
             # flops = calc_flops(model)
             macs = calc_flops_onnx(model)
-            self.eval_frame = update_row(self.eval_frame, uid,flops=macs, accuracy = acc,params = params, evaluate = True,block = int(model_metadata.block), ext_idx= ext_idx)
+            self.eval_frame = update_row(self.eval_frame, uid,flops=macs, accuracy = acc,params = params, evaluate = True,block = int(model_metadata.block), ext_idx= ext_idx, miner_lr = miner_lr)
             bt.logging.info(f"Params: {params} MACS: {macs}") 
             torch.cuda.empty_cache()
 

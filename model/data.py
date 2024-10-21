@@ -12,7 +12,6 @@ GIT_COMMIT_LENGTH = 40
 # The length, in bytes, of a base64 encoded sha256 hash.
 SHA256_BASE_64_LENGTH = 44
 
-
 class ModelId(BaseModel):
     """Uniquely identifies a trained model"""
 
@@ -31,32 +30,38 @@ class ModelId(BaseModel):
     name: str = Field(description="Name of the model.")
     # accuracy: str = Field(description="accuracy of the model.")
 
-
     # When handling a model locally the commit and hash are not necessary.
     # Commit must be filled when trying to download from a remote store.
     commit: Optional[str] = Field(
-        description="Commit of the model. May be empty if not yet committed."
+        description="Commit of the model. May be empty if not yet committed.",
+        default=None,
     )
     # Hash is filled automatically when uploading to or downloading from a remote store.
-    hash: Optional[str] = Field(description="Hash of the trained model.")
-
-
+    hash: Optional[str] = Field(description="Hash of the trained model.", default=None)
+    
+    # New learning_rate attribute as a string
+    learning_rate: Optional[str] = Field(
+        description="Learning rate used for training the model.", default=None
+    )
 
     def to_compressed_str(self) -> str:
         """Returns a compressed string representation."""
-        return f"{self.namespace}:{self.name}:{self.commit}:{self.hash}" #{self.accuracy}
+        return f"{self.namespace}:{self.name}:{self.commit}:{self.hash}:{self.learning_rate}"
 
     @classmethod
     def from_compressed_str(cls, cs: str) -> Type["ModelId"]:
         """Returns an instance of this class from a compressed string representation"""
         tokens = cs.split(":")
+
         return cls(
             namespace=tokens[0],
             name=tokens[1],
-            # accuracy=tokens[2],
             commit=tokens[2] if tokens[2] != "None" else None,
             hash=tokens[3] if tokens[3] != "None" else None,
+            learning_rate=tokens[4] if len(tokens) > 4 and tokens[4] != "None" else None,
         )
+
+
 
 
 class Model(BaseModel):

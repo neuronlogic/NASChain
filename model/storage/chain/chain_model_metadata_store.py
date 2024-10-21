@@ -60,12 +60,12 @@ class ChainModelMetadataStore(ModelMetadataStore):
 
         try:
             model_id = ModelId.from_compressed_str(chain_str)
-        except:
-            # If the metadata format is not correct on the chain then we return None.
+        except Exception as e:
             bt.logging.trace(
-                f"Failed to parse the metadata on the chain for hotkey {hotkey}."
+                f"Failed to parse the metadata on the chain for hotkey {hotkey}: {e}"
             )
             return None
+
 
         model_metadata = ModelMetadata(id=model_id, block=metadata["block"])
 

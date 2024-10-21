@@ -11,3 +11,4 @@ class ValidationConfig:
         self.max_flops = 220000000
         self.wandb_project = 'naschain-pareto'
         self.wandb_entitiy = 'naschain'
+        self.learning_rate = 0.025
