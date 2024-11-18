@@ -455,13 +455,13 @@ def load_model(model_dir):
         return model
     except Exception as e:
         bt.logging.warning(f"torch.jit.load failed with error: {e}")
-        try:
-            model = torch.load(model_dir)
-            bt.logging.info("Model loaded using torch.load")
-            return model
-        except Exception as jit_e:
-            bt.logging.error(f"torch.load also failed with error: {jit_e}")
-            raise  #
+        # try:
+        #     model = torch.load(model_dir)
+        #     bt.logging.info("Model loaded using torch.load")
+        #     return model
+        # except Exception as jit_e:
+        #     bt.logging.error(f"torch.load also failed with error: {jit_e}")
+        #     raise  #
 
 def validate_pareto(df, validated_uids, trainer, vali_config: ValidationConfig):
     changes_made = True
