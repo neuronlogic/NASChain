@@ -557,7 +557,7 @@ def calculate_exponential_rewards(df):
     rewarded_models['combined_score'] = rewarded_models['norm_accuracy'] - 0.25 * rewarded_models['norm_params'] - 0.5 * rewarded_models['norm_flops']
 
     # Apply np.exp to the combined score for scaling
-    exp_scores = np.exp(rewarded_models['combined_score'])
+    exp_scores = np.exp(rewarded_models['combined_score'].to_numpy())
 
     # Normalize the scaled values so they sum to 1
     total_exp_score = exp_scores.sum()
