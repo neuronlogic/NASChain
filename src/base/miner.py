@@ -129,7 +129,7 @@ class BaseMinerNeuron(BaseNeuron):
             upload_dir = ""
             # namespace, name = utils.validate_hf_repo_id(self.config.hf_repo_id)
             # bt.logging.info(f"Hugface namespace and name : {namespace},{name}")
-            model_id = ModelId(namespace=self.config.hf_repo_id, name='testing',learning_rate='0.025')
+            model_id = ModelId(namespace=self.config.hf_repo_id, name='io',learning_rate='0.126')
             bt.logging.info(f"⛏️ Model ID : {model_id}")
             HuggingFaceMinerModelStore.assert_access_token_exists()
             # Replace below code with you NAS algo to generate optmial model for you or give a path to model from args
@@ -197,7 +197,7 @@ class BaseMinerNeuron(BaseNeuron):
             #         f"Failed to read back model metadata from the chain. Expected: {model_id}, got: {model_metadata}"
             #     )
 
-            await asyncio.sleep(120)
+            await asyncio.sleep(60)
             await remote_model_store.set_repo_public(Model(id=model_id, pt_model=upload_dir))
             bt.logging.success("Committed model to the chain.")
 

@@ -36,7 +36,7 @@ class SimpleCNN(nn.Module):
         self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
         self.fc1 = nn.Linear(64 * 8 * 8, 256)
-        self.fc2 = nn.Linear(256, 10)
+        self.fc2 = nn.Linear(256, 100)
 
     def forward(self, x):
         x = self.pool(torch.relu(self.conv1(x)))
@@ -57,30 +57,34 @@ class DummyTrainer:
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         # Data loading and normalization
-        transform = transforms.Compose([
+        transform_train = transforms.Compose([
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         ])
-
+        
         # Adding Cutout to the transform
-        transform.transforms.append(Cutout(self.cutout_length))
+        transform_train.transforms.append(Cutout(self.cutout_length))
+        # CIFAR-100 normalization statistics
+        transform_train.transforms.append(transforms.Normalize((0.50707516, 0.48654887, 0.44091785), (0.26733429, 0.25643846, 0.27615047)))
 
-        self.trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
-        self.trainloader = DataLoader(self.trainset, batch_size=self.batch_size, shuffle=True, num_workers=8)
+        g = torch.Generator()
+        g.manual_seed(0)
 
-        self.testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transforms.Compose([
+        self.trainset = torchvision.datasets.CIFAR100(root='./data', train=True, download=True, transform=transform_train)
+        self.trainloader = DataLoader(self.trainset, batch_size=self.batch_size, num_workers=5,
+                                      worker_init_fn=self.worker_init_fn, generator=g, pin_memory=True, shuffle=False)
+
+        transform_test = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-        ]))
-        self.testloader = DataLoader(self.testset, batch_size=self.batch_size, shuffle=False, num_workers=8)
-
-        self.model = SimpleCNN().to(self.device)
-        self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.SGD(self.model.parameters(), lr=self.learning_rate, momentum=self.momentum, weight_decay=self.weight_decay)
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, self.epochs)
-
+            # CIFAR-100 normalization statistics
+            transforms.Normalize((0.50707516, 0.48654887, 0.44091785), (0.26733429, 0.25643846, 0.27615047))
+        ])
+        
+        self.testset = torchvision.datasets.CIFAR100(root='./data', train=False, download=True, transform=transform_test)
+        self.testloader = DataLoader(self.testset, batch_size=self.batch_size, num_workers=5,
+                                     worker_init_fn=self.worker_init_fn, generator=g, pin_memory=True)
+    
     def train(self):
         for epoch in range(self.epochs):
             self.scheduler.step()

@@ -67,6 +67,12 @@ class BaseNeuron(ABC):
 
         # Set up logging with the provided configuration and directory.
         bt.logging(config=self.config, logging_dir=self.config.full_path)
+        # bt.logging.on()
+        # if self.config.logging.debug:
+        #     bt.logging.set_debug(True)
+        # if self.config.logging.trace:
+        #     bt.logging.set_trace(True)
+        # bt.turn_console_on()
 
         # If a gpu is required, set the device to cuda:N (e.g. cuda:0)
         self.device = self.config.neuron.device
