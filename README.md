@@ -91,8 +91,8 @@ We recommend using virtual environments such as Conda to manage and isolate your
         source env/bin/activate
 4. Install the required packages:
     ```bash
-    chmod +x install.sh
-    ./install.sh
+    pip install -r requirements.txt
+
 
 5. **Running Miner:**
    1. Create a Hugging Face account.
