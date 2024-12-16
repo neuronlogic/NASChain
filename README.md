@@ -68,7 +68,7 @@ If the same architecture is uploaded multiple times by the same or different min
 
 We recommend using virtual environments such as Conda to manage and isolate your project dependencies.
 - Packages such as pytorch should be installed exactly as described in requirements.txt for Validators.
-- Ensure you have Python == 3.10.14 installed on your system.
+- Ensure you have Python == 3.10 installed on your system.
 - Both Miner and Validator code is only tested on Linux OS.
 - It is advised to use a virtual environment to avoid conflicts with other projects or system-wide packages.
 
@@ -83,7 +83,7 @@ We recommend using virtual environments such as Conda to manage and isolate your
 3. if setting up virtual enviuuement(Skip this step if running python on system level):
     - if using conda:
         ```bash
-        conda create --name myenv python=3.10.14
+        conda create --name myenv python=3.10
         conda activate myenv
     - if using venv
         ```bash
@@ -92,6 +92,7 @@ We recommend using virtual environments such as Conda to manage and isolate your
 4. Install the required packages:
     ```bash
     pip install -r requirements.txt
+
 
 5. **Running Miner:**
    1. Create a Hugging Face account.
@@ -117,9 +118,9 @@ We recommend using virtual environments such as Conda to manage and isolate your
       ```
    3. Mainnet:
       ```bash
-      python neurons/validator.py --netuid 31 --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name>   --logging.debug --logging.trace
+      python neurons/validator.py --netuid 31 --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name>   --logging.info 
       ```
       Testnet:
       ```bash
-      python neurons/validator.py --netuid 123 --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name>  --logging.debug --logging.trace  --subtensor.network test
+      python neurons/validator.py --netuid 123 --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name>  --logging.info   --subtensor.network test
       ```

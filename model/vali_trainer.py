@@ -55,23 +55,27 @@ class ValiTrainer:
         
         # Adding Cutout to the transform
         transform_train.transforms.append(Cutout(self.cutout_length))
-        transform_train.transforms.append(transforms.Normalize((0.49139968, 0.48215827, 0.44653124), (0.24703233, 0.24348505, 0.26158768)))
+        # CIFAR-100 normalization statistics
+        transform_train.transforms.append(transforms.Normalize((0.50707516, 0.48654887, 0.44091785), (0.26733429, 0.25643846, 0.27615047)))
 
         g = torch.Generator()
         g.manual_seed(0)
 
-        self.trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
+        self.trainset = torchvision.datasets.CIFAR100(root='./data', train=True, download=True, transform=transform_train)
         self.trainloader = DataLoader(self.trainset, batch_size=self.batch_size, num_workers=5,
-                                      worker_init_fn=self.worker_init_fn, generator=g,pin_memory=True,shuffle=False)
+                                      worker_init_fn=self.worker_init_fn, generator=g, pin_memory=True, shuffle=False)
 
         transform_test = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.49139968, 0.48215827, 0.44653124), (0.24703233, 0.24348505, 0.26158768))
+            # CIFAR-100 normalization statistics
+            transforms.Normalize((0.50707516, 0.48654887, 0.44091785), (0.26733429, 0.25643846, 0.27615047))
         ])
         
-        self.testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
+        self.testset = torchvision.datasets.CIFAR100(root='./data', train=False, download=True, transform=transform_test)
         self.testloader = DataLoader(self.testset, batch_size=self.batch_size, num_workers=5,
-                                     worker_init_fn=self.worker_init_fn, generator=g,pin_memory=True)
+                                     worker_init_fn=self.worker_init_fn, generator=g, pin_memory=True)
+    
+    
     
     
     def worker_init_fn(self, worker_id):
@@ -100,40 +104,41 @@ class ValiTrainer:
         optimizer = optim.SGD(parameters, lr=self.learning_rate, momentum=self.momentum, weight_decay=self.weight_decay)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, self.epochs)
         bt.logging.info(f"Initial learning rate is set to {self.learning_rate}")
-        for epoch in range(self.epochs):
-            scheduler.step()
-            bt.logging.info(f"Epoch {epoch}, LR: {scheduler.get_lr()[0]}")
-            # model.droprate = 0.0 * epoch / self.epochs
-            model.train()
-            running_loss = 0.0
-            correct = 0
-            total = 0
-            for i, data in enumerate(self.trainloader, 0):
-                inputs, labels = data
-                inputs, labels = inputs.to(self.device), labels.to(self.device)
+        with torch.autograd.set_detect_anomaly(False):
+            for epoch in range(self.epochs):
+                scheduler.step()
+                bt.logging.info(f"Epoch {epoch}, LR: {scheduler.get_lr()[0]}")
+                # model.droprate = 0.0 * epoch / self.epochs
+                model.train()
+                running_loss = 0.0
+                correct = 0
+                total = 0
+                for i, data in enumerate(self.trainloader, 0):
+                    inputs, labels = data
+                    inputs, labels = inputs.to(self.device), labels.to(self.device)
 
-                optimizer.zero_grad()
-                outputs = model(inputs)
-                if isinstance(outputs, tuple):
-                    outputs = outputs[0]  # Take the first element if the output is a tuple
-                loss = criterion(outputs, labels)
-                loss.backward()
-                nn.utils.clip_grad_norm_(model.parameters(), self.grad_clip)
-                optimizer.step()
+                    optimizer.zero_grad()
+                    outputs = model(inputs)
+                    if isinstance(outputs, tuple):
+                        outputs = outputs[0]  # Take the first element if the output is a tuple
+                    loss = criterion(outputs, labels)
+                    loss.backward()
+                    nn.utils.clip_grad_norm_(model.parameters(), self.grad_clip)
+                    optimizer.step()
 
-                running_loss += loss.item()
-                _, predicted = torch.max(outputs.data, 1)
-                total += labels.size(0)
-                correct += (predicted == labels).sum().item()
-                if i % 100 == 99:  # Print every 100 mini-batches
-                    accuracy = 100 * correct / total
-                    bt.logging.info(f'Epoch [{epoch + 1}, {i + 1}] loss: {running_loss / 100:.3f}, accuracy: {accuracy:.2f}%')
-                    running_loss = 0.0
-                    correct = 0
-                    total = 0
+                    running_loss += loss.item()
+                    _, predicted = torch.max(outputs.data, 1)
+                    total += labels.size(0)
+                    correct += (predicted == labels).sum().item()
+                    if i % 100 == 99:  # Print every 100 mini-batches
+                        accuracy = 100 * correct / total
+                        bt.logging.info(f'Epoch [{epoch + 1}, {i + 1}] loss: {running_loss / 100:.3f}, accuracy: {accuracy:.2f}%')
+                        running_loss = 0.0
+                        correct = 0
+                        total = 0
 
-            # Test the model after each epoch
-            test_accuracy = self.test(model)
+                # Test the model after each epoch
+                test_accuracy = self.test(model)
 
             # Check for overfitting
             # if epoch <= 13 and test_accuracy >= 90:

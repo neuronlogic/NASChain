@@ -29,25 +29,30 @@ class ChainModelMetadataStore(ModelMetadataStore):
         """Stores model metadata on this subnet for a specific wallet."""
         if self.wallet is None:
             raise ValueError("No wallet available to write to the chain.")
-
-        # Wrap calls to the subtensor in a subprocess with a timeout to handle potential hangs.
-        partial = functools.partial(
-            self.subtensor.commit,
-            self.wallet,
-            self.subnet_uid,
-            model_id.to_compressed_str(),
+        self.subtensor.commit(
+            wallet=self.wallet,
+            netuid=self.subnet_uid,
+            data=model_id.to_compressed_str(),
         )
-        utils.run_in_subprocess(partial, 60)
+
+        # # Wrap calls to the subtensor in a subprocess with a timeout to handle potential hangs.
+        # partial = functools.partial(
+        #     self.subtensor.commit,
+        #     self.wallet,
+        #     self.subnet_uid,
+        #     model_id.to_compressed_str(),
+        # )
+        # utils.run_in_subprocess(partial, 60)
 
     async def retrieve_model_metadata(self, hotkey: str) -> Optional[ModelMetadata]:
         """Retrieves model metadata on this subnet for specific hotkey"""
 
         # Wrap calls to the subtensor in a subprocess with a timeout to handle potential hangs.
-        partial = functools.partial(
-            bt.extrinsics.serving.get_metadata, self.subtensor, self.subnet_uid, hotkey
-        )
+        # partial = functools.partial(
+        metadata = bt.core.extrinsics.serving.get_metadata( self.subtensor, self.subnet_uid, hotkey)
+        # )
 
-        metadata = utils.run_in_subprocess(partial, 60)
+        # metadata = utils.run_in_subprocess(partial, 60)
         if not metadata:
             return None
 

@@ -43,7 +43,6 @@ class BaseValidatorNeuron(BaseNeuron):
     """
 
     neuron_type: str = "ValidatorNeuron"
-
     @classmethod
     def add_args(cls, parser: argparse.ArgumentParser):
         super().add_args(parser)
@@ -52,7 +51,6 @@ class BaseValidatorNeuron(BaseNeuron):
 
     def __init__(self, config=None):
         super().__init__(config=config)
-
         # Save a copy of the hotkeys to local memory.
         self.hotkeys = copy.deepcopy(self.metagraph.hotkeys)
         self.valid_data_length = 0
@@ -301,22 +299,21 @@ class BaseValidatorNeuron(BaseNeuron):
         # Calculate the average reward for each uid across non-zero values.
         # Replace any NaN values with 0.
         raw_weights = torch.nn.functional.normalize(self.scores, p=1, dim=0)
+        raw_weights= raw_weights.cpu().numpy()
 
-        bt.logging.debug("raw_weights", raw_weights)
-        bt.logging.debug("raw_weight_uids", self.metagraph.uids.to("cpu"))
         # Process the raw weights to final_weights via subtensor limitations.
         (
             processed_weight_uids,
             processed_weights,
         ) = bt.utils.weight_utils.process_weights_for_netuid(
-            uids=self.metagraph.uids.to("cpu"),
-            weights=raw_weights.to("cpu"),
+            uids=self.metagraph.uids,
+            weights=raw_weights,
             netuid=self.config.netuid,
             subtensor=self.subtensor,
             metagraph=self.metagraph,
         )
-        bt.logging.debug("processed_weights", processed_weights)
-        bt.logging.debug("processed_weight_uids", processed_weight_uids)
+        bt.logging.info("processed_weights", processed_weights)
+        bt.logging.info("processed_weight_uids", processed_weight_uids)
 
         # Convert to uint16 weights and uids.
         (
@@ -325,8 +322,8 @@ class BaseValidatorNeuron(BaseNeuron):
         ) = bt.utils.weight_utils.convert_weights_and_uids_for_emit(
             uids=processed_weight_uids, weights=processed_weights
         )
-        bt.logging.debug("uint_weights", uint_weights)
-        bt.logging.debug("uint_uids", uint_uids)
+        bt.logging.info("uint_weights", uint_weights)
+        bt.logging.info("uint_uids", uint_uids)
         try: 
             # Set the weights on chain via our subtensor connection.
             result, msg = self.subtensor.set_weights(
@@ -334,8 +331,8 @@ class BaseValidatorNeuron(BaseNeuron):
                 netuid=self.config.netuid,
                 uids=uint_uids,
                 weights=uint_weights,
-                wait_for_finalization=False,
-                wait_for_inclusion=False,
+                wait_for_finalization=True,
+                wait_for_inclusion=True,
                 version_key=self.spec_version,
             )
             if result is True:

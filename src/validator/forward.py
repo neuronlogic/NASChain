@@ -541,39 +541,31 @@ def assign_rewards_to_eval_frame(df, rewarded_uids, rewards):
 
 
 def calculate_exponential_rewards(df):
-    # Filter models that are eligible for rewards
     rewarded_models = df[df['reward'] == True][['uid', 'accuracy', 'params', 'flops']]
 
-    # Normalize accuracy, params, and flops
-    rewarded_models['norm_accuracy'] = (rewarded_models['accuracy'] - rewarded_models['accuracy'].min()) / (rewarded_models['accuracy'].max() - rewarded_models['accuracy'].min())
-    rewarded_models['norm_params'] = (rewarded_models['params'] - rewarded_models['params'].min()) / (rewarded_models['params'].max() - rewarded_models['params'].min())
-    rewarded_models['norm_flops'] = (rewarded_models['flops'] - rewarded_models['flops'].min()) / (rewarded_models['flops'].max() - rewarded_models['flops'].min())
+    # Handle normalization when there's only one element
+    if len(rewarded_models) == 1:
+        rewarded_models['norm_accuracy'] = 1
+        rewarded_models['norm_params'] = 0
+        rewarded_models['norm_flops'] = 0
+    else:
+        rewarded_models['norm_accuracy'] = (rewarded_models['accuracy'] - rewarded_models['accuracy'].min()) / (rewarded_models['accuracy'].max() - rewarded_models['accuracy'].min())
+        rewarded_models['norm_params'] = (rewarded_models['params'] - rewarded_models['params'].min()) / (rewarded_models['params'].max() - rewarded_models['params'].min())
+        rewarded_models['norm_flops'] = (rewarded_models['flops'] - rewarded_models['flops'].min()) / (rewarded_models['flops'].max() - rewarded_models['flops'].min())
 
-    # Calculate combined score with adjusted weights for params and flops
-    rewarded_models['combined_score'] = rewarded_models['norm_accuracy'] - 1.25 * rewarded_models['norm_params'] - 1.5 * rewarded_models['norm_flops']
+    # By using negative coefficients for these values (-0.2), the formula decreases the combined score for models with high params and flops
+    rewarded_models['combined_score'] = rewarded_models['norm_accuracy'] - 0.25 * rewarded_models['norm_params'] - 0.5 * rewarded_models['norm_flops']
 
-    # Apply exponential scaling to the combined score
-    rewarded_models['exp_score'] = np.exp(rewarded_models['combined_score'])
+    # Apply np.exp to the combined score for scaling
+    exp_scores = np.exp(rewarded_models['combined_score'].to_numpy())
 
-    # Separate into two accuracy groups
-    high_accuracy = rewarded_models['accuracy'] >= 96
-    mid_accuracy = (rewarded_models['accuracy'] >= 80) & (rewarded_models['accuracy'] < 96)
+    # Normalize the scaled values so they sum to 1
+    total_exp_score = exp_scores.sum()
+    rewarded_models['reward'] = exp_scores / total_exp_score
 
-    # Smoothed exponential scaling for mid accuracy range (80% - 95%)
-    # Combine accuracy and combined_score to smooth scaling and differentiate rewards based on params and flops
-    rewarded_models.loc[mid_accuracy, 'scaled_score'] = np.exp((rewarded_models.loc[mid_accuracy, 'accuracy'] - 80) / 4 + rewarded_models.loc[mid_accuracy, 'combined_score'] / 4)
-
-    # Normalize scores to distribute rewards
-    # Allocate 50% of rewards to high accuracy models
-    rewarded_models.loc[high_accuracy, 'reward'] = 0.5 * rewarded_models.loc[high_accuracy, 'exp_score'] / rewarded_models.loc[high_accuracy, 'exp_score'].sum()
-
-    # Allocate 50% of rewards to mid accuracy models, incorporating combined_score
-    rewarded_models.loc[mid_accuracy, 'reward'] = 0.5 * rewarded_models.loc[mid_accuracy, 'scaled_score'] / rewarded_models.loc[mid_accuracy, 'scaled_score'].sum()
-
-    # Extract uid and reward lists for verification
     rewarded_uids = rewarded_models['uid'].tolist()
     rewards = rewarded_models['reward'].tolist()
-
+    print(rewarded_uids, rewards)
     return rewarded_uids, rewards
 
 
@@ -865,7 +857,7 @@ async def forward(self):
                 bt.logging.error(traceback.format_exc())
             else:
                 bt.logging.error(f"Evaluation Error on uid {uid} : {e}")
-                # bt.logging.error(traceback.format_exc())
+                bt.logging.error(traceback.format_exc())
                 if uid in self.eval_frame['uid'].values:
                     bt.logging.warning(f"Removing UID: {uid}")
                     self.eval_frame = self.eval_frame[self.eval_frame['uid'] != uid]
