@@ -102,11 +102,11 @@ We recommend using virtual environments such as Conda to manage and isolate your
       ```
    3. To run a miner and train a dummy model, use only your Hugging Face username for `--hf_repo_id`. A model repository under the name `naschain` will be automatically created:
       ```bash
-      python neurons/miner.py --netuid 31 --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name> --logging.debug --hf_repo_id <your_hf_repo_id>
+      python neurons/miner.py --netuid 31 --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name> --logging.info --hf_repo_id <your_hf_repo_id>
       ```
    4. Run a Miner with a Pretrained(.pt) PyTorch Model (Model Exported by NAS in a Different Directory torch.save() or torch.jit.save()):
       ```bash
-      python neurons/miner.py --netuid 31 --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name> --logging.debug --hf_repo_id <your_hf_repo_id> --model.dir path/to/model/model.pt
+      python neurons/miner.py --netuid 31 --wallet.name <wallet_coldkey_name> --wallet.hotkey <wallet_hotkey_name> --logging.info --hf_repo_id <your_hf_repo_id> --model.dir path/to/model/model.pt
       ```
    5. For testnet use uid 123 and --subtensor.network test 
 

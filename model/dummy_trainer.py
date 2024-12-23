@@ -7,7 +7,10 @@ from torch.utils.data import DataLoader
 import logging
 import os
 import numpy as np
-
+import torch.backends.cudnn as cudnn
+import random
+import bittensor as bt
+import math
 class Cutout(object):
     def __init__(self, length):
         self.length = length
@@ -55,6 +58,10 @@ class DummyTrainer:
         self.weight_decay = weight_decay
         self.cutout_length = cutout_length
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.model = SimpleCNN().to(self.device)
+        self.criterion = nn.CrossEntropyLoss()
+        self.optimizer = optim.SGD(self.model.parameters(), lr=self.learning_rate, momentum=self.momentum, weight_decay=self.weight_decay)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, self.epochs)
 
         # Data loading and normalization
         transform_train = transforms.Compose([
@@ -85,7 +92,26 @@ class DummyTrainer:
         self.testloader = DataLoader(self.testset, batch_size=self.batch_size, num_workers=5,
                                      worker_init_fn=self.worker_init_fn, generator=g, pin_memory=True)
     
+    def worker_init_fn(self, worker_id):
+        worker_seed = torch.initial_seed() % 2**32
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+        
+    def set_seed(self, seed=0):
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        cudnn.deterministic = True
+        cudnn.benchmark = False
+        os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+        os.environ['PYTHONHASHSEED'] = str(seed)
+        torch.use_deterministic_algorithms(True)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.manual_seed(seed)
+    
     def train(self):
+        self.set_seed(0)
+        self.initialize_weights(self.model)
         for epoch in range(self.epochs):
             self.scheduler.step()
             logging.info(f"Epoch {epoch}, LR: {self.scheduler.get_lr()[0]}")
@@ -129,3 +155,42 @@ class DummyTrainer:
 
     def get_model(self):
         return self.model
+    
+    def reset_model_weights(self, layer, layer_name=''):
+        if hasattr(layer, 'reset_parameters'):
+            layer.reset_parameters()
+        else:
+            if hasattr(layer, 'children'):
+                for name, child in layer.named_children():
+                    child_name = f"{layer_name}.{name}" if layer_name else name
+                    if isinstance(child, nn.Conv2d):
+                        child.reset_parameters()
+                    else:
+                        self.reset_model_weights(child, child_name)
+
+    def initialize_weights(self,model):
+        self.set_seed(0)
+            
+        # state_dict = model.state_dict()
+        # for name, tensor in model.state_dict().items():
+        #     if len(tensor.shape) >= 2:  # Ensure the tensor has at least two dimensions
+        #         nn.init.kaiming_uniform_(tensor, a=math.sqrt(5))
+        #     elif len(tensor.shape) == 1:  # Handle biases and 1D tensors separately
+        #         if 'bias' in name:
+        #             nn.init.constant_(tensor, 0)
+        #         elif 'weight' in name:
+        #             nn.init.constant_(tensor, 1.0)
+
+
+        for name, param in model.named_parameters():
+            if param.dim() >= 2:  # Ensure the parameter has at least two dimensions
+                if 'weight' in name:
+                    nn.init.kaiming_uniform_(param.data, a=math.sqrt(5))
+            elif param.dim() == 1:  # Handle biases separately if they are one-dimensional
+                if 'bias' in name:
+                    nn.init.constant_(param.data, 0)
+                if 'weight' in name:
+                    nn.init.constant_(param.data, 1.0) 
+                    # nn.init.uniform_(tensor, -0.05, 0.05)
+        self.reset_model_weights(model)
+
