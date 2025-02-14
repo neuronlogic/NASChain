@@ -1,7 +1,7 @@
 numpy==2.0.1
 pymoo==0.3.0
 torch==2.5.0
-bittensor==8.5.0 
+bittensor==9.0.0 
 torchvision==0.20.0
 pandas==2.2.3
 pynvml==11.5.0

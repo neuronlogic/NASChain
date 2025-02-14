@@ -57,9 +57,28 @@ class ChainModelMetadataStore(ModelMetadataStore):
             return None
 
         commitment = metadata["info"]["fields"][0]
-        hex_data = commitment[list(commitment.keys())[0]][2:]
+        if isinstance(commitment, tuple):
+            commitment = commitment[0]
+        # bt.logging.info(
+        #         f"commitment msg {commitment}"
+        #     )
 
-        chain_str = bytes.fromhex(hex_data).decode()
+
+
+        # hex_data = commitment[list(commitment.keys())[0]][2:]
+
+        # chain_str = bytes.fromhex(hex_data).decode()
+
+        key = list(commitment.keys())[0]
+        value = commitment[key]
+        # value is something like ((110, 101, 116, 51, 49, ...),)
+        if isinstance(value, tuple) and len(value) > 0 and isinstance(value[0], tuple):
+            ascii_tuple = value[0]
+            chain_str = bytes(ascii_tuple).decode()  # converts the ints to a string
+        else:
+            # Fallback if the structure is different
+            chain_str = bytes(value).decode()
+
 
         model_id = None
 

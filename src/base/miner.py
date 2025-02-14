@@ -129,7 +129,7 @@ class BaseMinerNeuron(BaseNeuron):
             upload_dir = ""
             # namespace, name = utils.validate_hf_repo_id(self.config.hf_repo_id)
             # bt.logging.info(f"Hugface namespace and name : {namespace},{name}")
-            model_id = ModelId(namespace=self.config.hf_repo_id, name='io',learning_rate='0.126')
+            model_id = ModelId(namespace=self.config.hf_repo_id, name='HelloDTAO',learning_rate='0.126')
             bt.logging.info(f"⛏️ Model ID : {model_id}")
             HuggingFaceMinerModelStore.assert_access_token_exists()
             # Replace below code with you NAS algo to generate optmial model for you or give a path to model from args
